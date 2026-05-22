@@ -1,0 +1,7 @@
+[project]
+name = "PersonalPolicyRagAssistant"
+public = false
+
+[UI]
+name = "PersonalPolicyRagAssistant"
+description = "Private RAG assistant for personal policy and life documents."
