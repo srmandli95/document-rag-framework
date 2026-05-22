@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: personal-policy-rag-assistant-postgres
+    environment:
+      POSTGRES_USER: personal_policy_rag_assistant
+      POSTGRES_PASSWORD: personal_policy_rag_assistant
+      POSTGRES_DB: personal_policy_rag_assistant
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/create_pgvector_extension.sql:/docker-entrypoint-initdb.d/create_pgvector_extension.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U personal_policy_rag_assistant -d personal_policy_rag_assistant"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: personal-policy-rag-assistant-backend
+    env_file:
+      - .env
+    environment:
+      APP_NAME: PersonalPolicyRagAssistant
+      DATABASE_URL: postgresql+psycopg2://personal_policy_rag_assistant:personal_policy_rag_assistant@postgres:5432/personal_policy_rag_assistant
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  chainlit:
+    build:
+      context: .
+      dockerfile: chainlit_ui/Dockerfile
+    container_name: personal-policy-rag-assistant-chainlit
+    environment:
+      BACKEND_BASE_URL: http://backend:8000
+    ports:
+      - "8501:8501"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
