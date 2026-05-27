@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     EXTRACTED_TEXT_DIR: str = "/app/data/extracted_text"
     PROCESSED_CHUNKS_DIR: str = "/app/data/processed_chunks"
 
-    MAX_UPLOAD_SIZE_MB: int = 25
+    MAX_UPLOAD_SIZE_MB: int = 250
 
     LLM_PROVIDER: str = "openai"
     OPENAI_API_KEY: str | None = None
