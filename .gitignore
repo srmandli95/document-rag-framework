@@ -61,3 +61,19 @@ coverage.xml
 *.key
 *.cert
 secrets/
+
+# Local uploaded/processed document artifacts
+data/raw_documents/*
+data/redacted_documents/*
+data/extracted_text/*
+data/uploaded_files/*
+data/processed_chunks/*
+data/eval/*
+
+# Keep folder structure
+!data/raw_documents/.gitkeep
+!data/redacted_documents/.gitkeep
+!data/extracted_text/.gitkeep
+!data/uploaded_files/.gitkeep
+!data/processed_chunks/.gitkeep
+!data/eval/.gitkeep

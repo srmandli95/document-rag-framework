@@ -6,7 +6,6 @@ name = "pypi"
 [packages]
 fastapi = "*"
 uvicorn = "*"
-python-multipart = "*"
 pydantic = "*"
 pydantic-settings = "*"
 sqlalchemy = "*"
@@ -15,9 +14,12 @@ pgvector = "*"
 chainlit = "*"
 httpx = "*"
 python-dotenv = "*"
+python-multipart = "*"
+sqlmodel = "*"
 
 [dev-packages]
 pytest = "*"
+httpx = "*"
 
 [requires]
 python_version = "3.11"
