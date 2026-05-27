@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.health_routes import router as health_router
+from app.api.document_routes import router as document_router
 from app.config.settings import settings
 
 app = FastAPI(
@@ -19,6 +20,7 @@ app.add_middleware(
 )
 
 app.include_router(health_router)
+app.include_router(document_router)
 
 
 @app.get("/")
