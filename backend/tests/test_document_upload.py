@@ -1,9 +1,15 @@
 from pathlib import Path
+from uuid import uuid4
 from fastapi.testclient import TestClient
-
+from types import SimpleNamespace
 from app.main import app
 
 client = TestClient(app)
+
+
+
+
+
 
 def test_upload_valid_text_file(monkeypatch):
 
@@ -15,7 +21,40 @@ def test_upload_valid_text_file(monkeypatch):
         str(test_raw_dir),
     )
 
-    file_content = "This is a sythetic test document for unit testing."
+    def fake_create_document_record(
+        db,
+        *,
+        user_id,
+        original_file_name,
+        stored_file_name,
+        category,
+        content_type,
+        file_size_bytes,
+        storage_provider,
+        storage_path,
+        status="uploaded",
+    ):
+        return SimpleNamespace(
+            id=str(uuid4()),
+            user_id=user_id,
+            original_file_name=original_file_name,
+            stored_file_name=stored_file_name,
+            category=category,
+            content_type=content_type,
+            file_size_bytes=file_size_bytes,
+            storage_provider=storage_provider,
+            storage_path=storage_path,
+            status=status,
+            created_at=None,
+            updated_at=None,
+        )
+
+    monkeypatch.setattr(
+        "app.api.document_routes.create_document_record",
+        fake_create_document_record,
+    )
+
+    file_content = "This is a synthetic test document for unit testing."
 
     response = client.post(
         "/documents/upload",
@@ -36,12 +75,16 @@ def test_upload_valid_text_file(monkeypatch):
 
     body = response.json()
 
+    assert body["document_id"] is not None
     assert body["user_id"] == "test_user-123"
     assert body["category"] == "test_category"
     assert body["storage_provider"] == "local"
     assert body["status"] == "uploaded"
     assert body["file_name"] == "test_document.txt"
+    assert body["original_file_name"] == "test_document.txt"
+    assert body["content_type"] == "text/plain"
     assert body["file_size_bytes"] == len(file_content)
+    assert body["message"] == "Document uploaded and metadata saved successfully"
 
     saved_file_path = Path(body["storage_path"])
     assert saved_file_path.exists()
@@ -144,5 +187,5 @@ def test_reject_file_larger_than_max_size(monkeypatch):
         },
     )
 
-    assert response.status_code == 400
-    assert f"File size exceeds the maximum allowed size of {max_size_mb} MB" in response.json()["detail"]
+    assert response.status_code == 413
+    assert f"File size exceeds {max_size_mb} MB limit" in response.json()["detail"]
