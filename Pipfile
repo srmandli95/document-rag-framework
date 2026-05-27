@@ -15,6 +15,7 @@ chainlit = "*"
 httpx = "*"
 python-dotenv = "*"
 python-multipart = "*"
+sqlmodel = "*"
 
 [dev-packages]
 pytest = "*"
