@@ -1,0 +1,12 @@
+Sample Health Insurance Policy
+
+This is a synthetic sample document created only for local testing.
+
+Policy Type: Health Insurance
+Coverage Summary:
+- Annual wellness visit is covered.
+- Generic prescriptions may have a lower copay.
+- Emergency care may require deductible payment.
+- Specialist visits may require referral depending on the plan.
+
+This file does not contain real personal information.
