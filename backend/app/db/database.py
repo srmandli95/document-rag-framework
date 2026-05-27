@@ -1,6 +1,13 @@
+from collections.abc import Generator
+
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+
 from app.config.settings import settings
+
+
+class Base(DeclarativeBase):
+    pass
 
 
 engine = create_engine(
@@ -9,15 +16,15 @@ engine = create_engine(
 )
 
 SessionLocal = sessionmaker(
-    automcommit=False,
+    autocommit=False,
     autoflush=False,
     bind=engine,
-)   
+)
 
-def get_db():
-    """Dependency function to get a database session."""
+
+def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
     finally:
-        db.close()      
+        db.close()

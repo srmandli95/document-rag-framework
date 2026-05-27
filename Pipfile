@@ -19,6 +19,7 @@ sqlmodel = "*"
 
 [dev-packages]
 pytest = "*"
+pytest-asyncio = "*"
 httpx = "*"
 
 [requires]

@@ -10,10 +10,10 @@ ui:
 	cd chainlit_ui && BACKEND_BASE_URL=http://localhost:8000 pipenv run chainlit run app.py --host 0.0.0.0 --port 8501
 
 build:
-	docker compose up --build
+	docker compose up -d --build
 
 run:
-	docker compose up
+	docker compose up -d
 
 stop:
 	docker compose down
@@ -21,12 +21,8 @@ stop:
 logs:
 	docker compose logs -f
 
-test:
-	cd backend && PYTHONPATH=. pipenv run pytest -q
-
 health:
 	curl http://localhost:8000/health
 
-clean:
-	find . -type d -name "__pycache__" -prune -exec rm -rf {} +
-	find . -type d -name ".pytest_cache" -prune -exec rm -rf {} +
+test:
+	docker compose exec backend sh -c "PYTHONPATH=/app pytest -q"
