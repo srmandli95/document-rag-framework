@@ -10,9 +10,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY Pipfile /app/Pipfile
 
 RUN pip install --no-cache-dir pipenv \
-    && pipenv install --system --skip-lock
+    && pipenv install --system --dev --skip-lock
 
 COPY backend/app /app/app
+COPY backend/tests /app/tests
 
 EXPOSE 8000
 
