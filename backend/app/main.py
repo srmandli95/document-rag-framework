@@ -4,12 +4,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.health_routes import router as health_router
 from app.api.document_routes import router as document_router
 from app.config.settings import settings
+from app.db.database import Base, engine
+from app.models import document
 
 app = FastAPI(
     title=settings.APP_NAME,
     version="0.1.0",
     description="Production-grade RAG assistant for personal policy and life documents.",
 )
+
+@app.on_event("startup")
+def on_startup() -> None:
+    Base.metadata.create_all(bind=engine)
+
 
 app.add_middleware(
     CORSMiddleware,
