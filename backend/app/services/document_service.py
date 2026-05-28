@@ -89,3 +89,24 @@ def soft_delete_document(
     db.refresh(document)
 
     return document
+
+
+def update_document_status(
+    db: Session,
+    document_id: str,
+    status: str,
+) -> Document | None:
+    document = (
+        db.query(Document)
+        .filter(Document.id == document_id)
+        .first()
+    )
+
+    if document is None:
+        return None
+
+    document.status = status
+    db.commit()
+    db.refresh(document)
+
+    return document
