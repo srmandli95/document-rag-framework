@@ -14,6 +14,7 @@ RUN pip install --no-cache-dir pipenv \
 
 COPY backend/app /app/app
 COPY backend/tests /app/tests
+COPY backend/sample_knowledge_base /app/sample_knowledge_base
 
 EXPOSE 8000
 
