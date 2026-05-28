@@ -16,6 +16,9 @@ httpx = "*"
 python-dotenv = "*"
 python-multipart = "*"
 sqlmodel = "*"
+pypdf = "*"
+python-docx = "*"
+beautifulsoup4 = "*"
 
 [dev-packages]
 pytest = "*"
