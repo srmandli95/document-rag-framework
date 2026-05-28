@@ -20,6 +20,9 @@ from app.services.document_service import (
     soft_delete_document,
 )
 from app.services.local_storage_service import LocalStorageService
+from app.ingestion.extraction_service import extract_and_store_document_text
+from app.schemas.document_schema import DocumentExtractionResponse
+from app.services.document_service import get_document_by_id
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
@@ -245,3 +248,38 @@ def delete_document(
         status=document.status,
         message="Document soft deleted successfully",
     )
+
+
+@router.post(
+    "/{document_id}/extract",
+    response_model=DocumentExtractionResponse,
+)
+def extract_document_text(
+    document_id: str,
+    user_id: str = Query(...),
+    db: Session = Depends(get_db),
+) -> DocumentExtractionResponse:
+    if not user_id.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="user_id is required",
+        )
+
+    document = get_document_by_id(
+        db=db,
+        document_id=document_id,
+        user_id=user_id,
+    )
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    result = extract_and_store_document_text(
+        db=db,
+        document=document,
+    )
+
+    return DocumentExtractionResponse(**result)

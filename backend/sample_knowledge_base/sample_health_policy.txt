@@ -1,0 +1,10 @@
+Sample Health Policy
+
+This is a synthetic health insurance policy document.
+
+Coverage Summary:
+- Primary care visits are covered.
+- Preventive care is covered.
+- Emergency care is covered based on plan rules.
+
+This document is only for local testing.
