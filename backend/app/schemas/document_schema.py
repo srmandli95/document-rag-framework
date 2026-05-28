@@ -39,3 +39,11 @@ class DocumentDeleteResponse(BaseModel):
     user_id: str
     status: str
     message: str
+
+class DocumentExtractionResponse(BaseModel):
+    document_id: str
+    user_id: str
+    status: str
+    extracted_text_path: str
+    character_count: int
+    message: str
