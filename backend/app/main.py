@@ -5,7 +5,7 @@ from app.api.health_routes import router as health_router
 from app.api.document_routes import router as document_router
 from app.config.settings import settings
 from app.db.database import Base, engine
-from app.models import document
+from app.models import Document, DocumentChunk
 
 app = FastAPI(
     title=settings.APP_NAME,
