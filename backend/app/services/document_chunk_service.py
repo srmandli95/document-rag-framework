@@ -1,0 +1,72 @@
+from sqlalchemy.orm import Session
+
+from app.models.document_chunk import DocumentChunk
+
+
+def create_document_chunks(
+    db: Session,
+    document_id: str,
+    user_id: str,
+    chunks: list[dict],
+) -> list[DocumentChunk]:
+    document_chunks: list[DocumentChunk] = []
+
+    for chunk in chunks:
+        document_chunk = DocumentChunk(
+            document_id=document_id,
+            user_id=user_id,
+            chunk_text=chunk["chunk_text"],
+            chunk_index=chunk["chunk_index"],
+            token_count=chunk["token_count"],
+            section_title=chunk.get("section_title"),
+            page_number=chunk.get("page_number"),
+            status="created",
+        )
+
+        db.add(document_chunk)
+        document_chunks.append(document_chunk)
+
+    db.commit()
+
+    for document_chunk in document_chunks:
+        db.refresh(document_chunk)
+
+    return document_chunks
+
+
+def get_chunks_by_document(
+    db: Session,
+    document_id: str,
+    user_id: str,
+) -> list[DocumentChunk]:
+    return (
+        db.query(DocumentChunk)
+        .filter(DocumentChunk.document_id == document_id)
+        .filter(DocumentChunk.user_id == user_id)
+        .filter(DocumentChunk.status != "deleted")
+        .order_by(DocumentChunk.chunk_index.asc())
+        .all()
+    )
+
+
+def delete_chunks_by_document(
+    db: Session,
+    document_id: str,
+    user_id: str,
+) -> int:
+    chunks = (
+        db.query(DocumentChunk)
+        .filter(DocumentChunk.document_id == document_id)
+        .filter(DocumentChunk.user_id == user_id)
+        .all()
+    )
+
+    deleted_count = 0
+
+    for chunk in chunks:
+        chunk.status = "deleted"
+        deleted_count += 1
+
+    db.commit()
+
+    return deleted_count

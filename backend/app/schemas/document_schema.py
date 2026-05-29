@@ -47,3 +47,21 @@ class DocumentExtractionResponse(BaseModel):
     extracted_text_path: str
     character_count: int
     message: str
+
+class DocumentChunkingResponse(BaseModel):
+    document_id: str
+    user_id: str
+    status: str
+    chunk_count: int
+    message: str
+
+
+class DocumentChunkMetadata(BaseModel):
+    chunk_id: str
+    document_id: str
+    user_id: str
+    chunk_index: int
+    token_count: int
+    section_title: str | None = None
+    page_number: int | None = None
+    status: str
