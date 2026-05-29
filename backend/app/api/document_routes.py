@@ -23,6 +23,8 @@ from app.services.local_storage_service import LocalStorageService
 from app.ingestion.extraction_service import extract_and_store_document_text
 from app.schemas.document_schema import DocumentExtractionResponse
 from app.services.document_service import get_document_by_id
+from app.ingestion.chunking_service import chunk_and_store_document_text
+from app.schemas.document_schema import DocumentChunkingResponse
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
@@ -283,3 +285,43 @@ def extract_document_text(
     )
 
     return DocumentExtractionResponse(**result)
+
+@router.post(
+    "/{document_id}/chunk",
+    response_model=DocumentChunkingResponse,
+)
+def chunk_document_text(
+    document_id: str,
+    user_id: str = Query(...),
+    db: Session = Depends(get_db),
+) -> DocumentChunkingResponse:
+    if not user_id.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="user_id is required",
+        )
+
+    document = get_document_by_id(
+        db=db,
+        document_id=document_id,
+        user_id=user_id,
+    )
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    if document.status != "extracted":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Document must be extracted before chunking",
+        )
+
+    result = chunk_and_store_document_text(
+        db=db,
+        document=document,
+    )
+
+    return DocumentChunkingResponse(**result)
