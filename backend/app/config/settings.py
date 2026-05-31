@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     EXTRACTED_TEXT_DIR: str = "/app/data/extracted_text"
     PROCESSED_CHUNKS_DIR: str = "/app/data/processed_chunks"
 
+    EMBEDDING_PROVIDER: str = "local"
+    EMBEDDING_MODEL_NAME: str = "sentence-transformers/all-MiniLM-L6-v2"
+    EMBEDDING_DIMENSION: int = 384
+
     MAX_UPLOAD_SIZE_MB: int = 250
 
     LLM_PROVIDER: str = "openai"
