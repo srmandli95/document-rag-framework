@@ -25,6 +25,8 @@ from app.schemas.document_schema import DocumentExtractionResponse
 from app.services.document_service import get_document_by_id
 from app.ingestion.chunking_service import chunk_and_store_document_text
 from app.schemas.document_schema import DocumentChunkingResponse
+from app.ingestion.embedding_indexing_service import embed_document_chunks
+from app.schemas.document_schema import DocumentEmbeddingResponse
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
@@ -325,3 +327,47 @@ def chunk_document_text(
     )
 
     return DocumentChunkingResponse(**result)
+
+@router.post("/{document_id}/embed", response_model=DocumentEmbeddingResponse)
+def embed_document(
+    document_id: str,
+    user_id: str,
+    db=Depends(get_db),
+) -> DocumentEmbeddingResponse:
+    if not user_id.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="user_id is required",
+        )
+
+    document = get_document_by_id(
+        db=db,
+        document_id=document_id,
+        user_id=user_id,
+    )
+
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    if document.status != "chunked":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Document must be in chunked status before embedding. Current status: {document.status}",
+        )
+
+    try:
+        result = embed_document_chunks(
+            db=db,
+            document=document,
+        )
+
+        return DocumentEmbeddingResponse(**result)
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
