@@ -1,6 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -52,6 +53,11 @@ class DocumentChunk(Base):
     token_count: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
+    )
+
+    embedding: Mapped[list[float] | None] = mapped_column(
+        Vector(384),
+        nullable=True,
     )
 
     status: Mapped[str] = mapped_column(
