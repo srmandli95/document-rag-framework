@@ -49,6 +49,68 @@ def get_chunks_by_document(
     )
 
 
+def get_created_chunks_by_document(
+    db: Session,
+    document_id: str,
+    user_id: str,
+) -> list[DocumentChunk]:
+    return (
+        db.query(DocumentChunk)
+        .filter(DocumentChunk.document_id == document_id)
+        .filter(DocumentChunk.user_id == user_id)
+        .filter(DocumentChunk.status == "created")
+        .order_by(DocumentChunk.chunk_index.asc())
+        .all()
+    )
+
+
+def update_chunk_embedding(
+    db: Session,
+    chunk_id: str,
+    embedding: list[float],
+    status: str = "embedded",
+) -> DocumentChunk | None:
+    chunk = (
+        db.query(DocumentChunk)
+        .filter(DocumentChunk.id == chunk_id)
+        .first()
+    )
+
+    if chunk is None:
+        return None
+
+    chunk.embedding = embedding
+    chunk.status = status
+
+    db.commit()
+    db.refresh(chunk)
+
+    return chunk
+
+
+def update_chunks_with_embeddings(
+    db: Session,
+    chunks: list[DocumentChunk],
+    embeddings: list[list[float]],
+) -> list[DocumentChunk]:
+    if len(chunks) != len(embeddings):
+        raise ValueError("Chunks and embeddings count must match.")
+
+    updated_chunks: list[DocumentChunk] = []
+
+    for chunk, embedding in zip(chunks, embeddings):
+        chunk.embedding = embedding
+        chunk.status = "embedded"
+        updated_chunks.append(chunk)
+
+    db.commit()
+
+    for chunk in updated_chunks:
+        db.refresh(chunk)
+
+    return updated_chunks
+
+
 def delete_chunks_by_document(
     db: Session,
     document_id: str,

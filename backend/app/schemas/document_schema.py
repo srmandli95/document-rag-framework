@@ -65,3 +65,12 @@ class DocumentChunkMetadata(BaseModel):
     section_title: str | None = None
     page_number: int | None = None
     status: str
+
+class DocumentEmbeddingResponse(BaseModel):
+    document_id: str
+    user_id: str
+    status: str
+    embedded_chunk_count: int
+    embedding_provider: str
+    embedding_model_name: str
+    message: str
