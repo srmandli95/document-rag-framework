@@ -4,11 +4,14 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.retrieval.vector_retriever import vector_search
 from app.retrieval.bm25_retriever import bm25_search
+from app.retrieval.hybrid_retriever import hybrid_search
 from app.schemas.retrieval_schema import (
     BM25SearchRequest,
     BM25SearchResponse,
     VectorSearchRequest,
-    VectorSearchResponse
+    VectorSearchResponse,
+    HybridSearchRequest,
+    HybridSearchResponse,
 )
 
 router = APIRouter(prefix="/retrieval", tags=["Retrieval"])
@@ -92,6 +95,71 @@ def search_bm25_chunks(
     return BM25SearchResponse(
         user_id=request.user_id,
         query=request.query,
+        top_k=top_k,
+        result_count=len(results),
+        results=results,
+    )
+
+@router.post("/hybrid-search", response_model=HybridSearchResponse)
+def search_hybrid_chunks(
+    request: HybridSearchRequest,
+    db: Session = Depends(get_db),
+) -> HybridSearchResponse:
+    if not request.user_id or not request.user_id.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="user_id is required",
+        )
+
+    if not request.query or not request.query.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="query is required",
+        )
+
+    if request.vector_weight < 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="vector_weight must be non-negative",
+        )
+
+    if request.bm25_weight < 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="bm25_weight must be non-negative",
+        )
+
+    if request.vector_weight == 0 and request.bm25_weight == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one retrieval weight must be greater than 0",
+        )
+
+    top_k = min(request.top_k, 20)
+    vector_top_k = min(request.vector_top_k, 50)
+    bm25_top_k = min(request.bm25_top_k, 50)
+
+    try:
+        results = hybrid_search(
+            db=db,
+            user_id=request.user_id.strip(),
+            query=request.query.strip(),
+            top_k=top_k,
+            vector_top_k=vector_top_k,
+            bm25_top_k=bm25_top_k,
+            vector_weight=request.vector_weight,
+            bm25_weight=request.bm25_weight,
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return HybridSearchResponse(
+        user_id=request.user_id.strip(),
+        query=request.query.strip(),
         top_k=top_k,
         result_count=len(results),
         results=results,
