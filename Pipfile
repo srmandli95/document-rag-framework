@@ -21,6 +21,8 @@ beautifulsoup4 = "*"
 sentence-transformers = "*"
 pgvector = "*"
 rank-bm25 = "*"
+openai = "*"
+pyyaml = "*"
 
 [dev-packages]
 pytest = "*"
