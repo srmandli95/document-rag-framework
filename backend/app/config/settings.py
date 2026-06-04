@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL_NAME: str = "sentence-transformers/all-MiniLM-L6-v2"
     EMBEDDING_DIMENSION: int = 384
 
+    RERANKER_PROVIDER: str = "local"
+    RERANKER_MODEL_NAME: str = "cross-encoder/ms-marco-MiniLM-L6-v2"
+    RERANKER_TOP_K: int = 8
+
     MAX_UPLOAD_SIZE_MB: int = 250
 
     LLM_PROVIDER: str = "openai"

@@ -59,9 +59,9 @@ class BM25SearchResponse(BaseModel):
 class HybridSearchRequest(BaseModel):
     user_id: str
     query: str
-    top_k: int = Field(default=5, ge=1, le=50)
-    vector_top_k: int = Field(default=20, ge=1, le=100)
-    bm25_top_k: int = Field(default=20, ge=1, le=100)
+    top_k: int = Field(default=5, ge=1)
+    vector_top_k: int = Field(default=20, ge=1)
+    bm25_top_k: int = Field(default=20, ge=1)
     vector_weight: float = Field(default=0.6, ge=0)
     bm25_weight: float = Field(default=0.4, ge=0)
 
@@ -91,3 +91,44 @@ class HybridSearchResponse(BaseModel):
     top_k: int
     result_count: int
     results: list[HybridSearchResult]
+
+class RerankSearchRequest(BaseModel):
+    user_id: str
+    query: str
+    top_k: int = 8
+    hybrid_top_k: int = 20
+    vector_top_k: int = 20
+    bm25_top_k: int = 20
+    vector_weight: float = 0.6
+    bm25_weight: float = 0.4
+
+
+class RerankSearchResult(BaseModel):
+    chunk_id: str
+    document_id: str
+    user_id: str
+    chunk_text: str
+    chunk_index: int
+    token_count: int | None = None
+    page_number: int | None = None
+    section_title: str | None = None
+    document_name: str | None = None
+    category: str | None = None
+
+    vector_score: float = 0.0
+    bm25_score: float = 0.0
+    normalized_vector_score: float = 0.0
+    normalized_bm25_score: float = 0.0
+    hybrid_score: float = 0.0
+    retrieval_sources: list[str] = []
+
+    reranker_score: float
+    reranker_model_name: str
+
+
+class RerankSearchResponse(BaseModel):
+    user_id: str
+    query: str
+    top_k: int
+    result_count: int
+    results: list[RerankSearchResult]
