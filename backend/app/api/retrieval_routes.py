@@ -5,6 +5,7 @@ from app.db.database import get_db
 from app.retrieval.vector_retriever import vector_search
 from app.retrieval.bm25_retriever import bm25_search
 from app.retrieval.hybrid_retriever import hybrid_search
+from app.reranking.reranking_service import rerank_hybrid_results
 from app.schemas.retrieval_schema import (
     BM25SearchRequest,
     BM25SearchResponse,
@@ -12,6 +13,8 @@ from app.schemas.retrieval_schema import (
     VectorSearchResponse,
     HybridSearchRequest,
     HybridSearchResponse,
+    RerankSearchRequest,
+    RerankSearchResponse
 )
 
 router = APIRouter(prefix="/retrieval", tags=["Retrieval"])
@@ -161,6 +164,66 @@ def search_hybrid_chunks(
         user_id=request.user_id.strip(),
         query=request.query.strip(),
         top_k=top_k,
+        result_count=len(results),
+        results=results,
+    )
+
+@router.post("/rerank-search", response_model=RerankSearchResponse)
+def search_reranked_chunks(
+    request: RerankSearchRequest,
+    db: Session = Depends(get_db),
+) -> RerankSearchResponse:
+    if not request.user_id or not request.user_id.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="user_id is required",
+        )
+
+    if not request.query or not request.query.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="query is required",
+        )
+
+    if request.vector_weight < 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="vector_weight must be non-negative",
+        )
+
+    if request.bm25_weight < 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="bm25_weight must be non-negative",
+        )
+
+    if request.vector_weight == 0 and request.bm25_weight == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="vector_weight and bm25_weight cannot both be 0",
+        )
+
+    safe_top_k = min(request.top_k, 10)
+    safe_hybrid_top_k = min(request.hybrid_top_k, 50)
+    safe_vector_top_k = min(request.vector_top_k, 50)
+    safe_bm25_top_k = min(request.bm25_top_k, 50)
+
+    results = rerank_hybrid_results(
+        db=db,
+        user_id=request.user_id,
+        query=request.query,
+        top_k=safe_top_k,
+        hybrid_top_k=safe_hybrid_top_k,
+        vector_top_k=safe_vector_top_k,
+        bm25_top_k=safe_bm25_top_k,
+        vector_weight=request.vector_weight,
+        bm25_weight=request.bm25_weight,
+    )
+
+    return RerankSearchResponse(
+        user_id=request.user_id,
+        query=request.query,
+        top_k=safe_top_k,
         result_count=len(results),
         results=results,
     )
