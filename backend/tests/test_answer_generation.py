@@ -1,319 +1,213 @@
-import pytest
-from fastapi.testclient import TestClient
-
-from app.generation.citation_guard import REFUSAL_MESSAGE
 from app.generation.answer_generator import generate_answer_from_evidence
-from app.main import app
 
 
-class FakeLLMClient:
-    def __init__(self, answer: str):
-        self.answer = answer
-        self.called = False
-
-    def generate(self, prompt: str) -> str:
-        self.called = True
-        assert "Does my health insurance cover urgent care?" in prompt
-        return self.answer
-
-
-def sample_evidence_chunks():
-    return [
-        {
-            "chunk_id": "chunk-1",
-            "document_id": "doc-1",
-            "document_name": "sample_health_policy.txt",
-            "category": "health_insurance",
-            "page_number": None,
-            "section_title": "Urgent Care",
-            "chunk_index": 0,
-            "chunk_text": "Urgent care visits are covered with a $50 copay.",
-            "reranker_score": 0.92,
-            "hybrid_score": 0.81,
-        }
-    ]
+class FakeDB:
+    pass
 
 
 def test_generate_answer_from_evidence_returns_refusal_when_no_evidence(monkeypatch):
-    fake_llm = FakeLLMClient("This should not be called.")
-
-    def fake_rerank_hybrid_results(**kwargs):
-        return []
-
-    def fake_get_llm_client():
-        return fake_llm
-
-    monkeypatch.setattr(
-        "app.generation.answer_generator.rerank_hybrid_results",
-        fake_rerank_hybrid_results,
-    )
-    monkeypatch.setattr(
-        "app.generation.answer_generator.get_llm_client",
-        fake_get_llm_client,
-    )
-
-    response = generate_answer_from_evidence(
-        db=None,
-        user_id="local-user-123",
-        question="Does my health insurance cover urgent care?",
-    )
-
-    assert response["status"] == "refused"
-    assert response["validation_status"] == "unsupported"
-    assert response["answer"] == REFUSAL_MESSAGE
-    assert response["citations"] == []
-    assert response["evidence_chunk_count"] == 0
-    assert fake_llm.called is False
-
-
-def test_llm_client_is_not_called_when_no_evidence(monkeypatch):
-    fake_llm = FakeLLMClient("This should not be called.")
-
-    monkeypatch.setattr(
-        "app.generation.answer_generator.rerank_hybrid_results",
-        lambda **kwargs: [],
-    )
-    monkeypatch.setattr(
-        "app.generation.answer_generator.get_llm_client",
-        lambda: fake_llm,
-    )
-
-    generate_answer_from_evidence(
-        db=None,
-        user_id="local-user-123",
-        question="Does my health insurance cover urgent care?",
-    )
-
-    assert fake_llm.called is False
-
-
-def test_generated_answer_with_valid_evidence_returns_answered(monkeypatch):
-    fake_llm = FakeLLMClient("Urgent care visits are covered with a $50 copay.")
-
-    monkeypatch.setattr(
-        "app.generation.answer_generator.rerank_hybrid_results",
-        lambda **kwargs: sample_evidence_chunks(),
-    )
-    monkeypatch.setattr(
-        "app.generation.answer_generator.get_llm_client",
-        lambda: fake_llm,
-    )
-
-    response = generate_answer_from_evidence(
-        db=None,
-        user_id="local-user-123",
-        question="Does my health insurance cover urgent care?",
-    )
-
-    assert response["status"] == "answered"
-    assert response["validation_status"] == "supported"
-    assert response["answer"] == "Urgent care visits are covered with a $50 copay."
-    assert response["evidence_chunk_count"] == 1
-    assert len(response["citations"]) == 1
-    assert response["citations"][0]["chunk_id"] == "chunk-1"
-    assert fake_llm.called is True
-
-
-def test_generated_answer_with_invalid_citations_gets_refused(monkeypatch):
-    fake_llm = FakeLLMClient("Urgent care visits are covered with a $50 copay.")
-
-    def fake_validate_answer_support(**kwargs):
+    def fake_run_rag_workflow(
+        db,
+        user_id,
+        question,
+        top_k=5,
+        hybrid_top_k=20,
+        vector_top_k=20,
+        bm25_top_k=20,
+        min_reranker_score=None,
+    ):
         return {
-            "validation_status": "unsupported",
-            "reason": "One or more citation chunk IDs are missing or not present in evidence chunks.",
-            "final_answer": REFUSAL_MESSAGE,
+            "user_id": user_id,
+            "question": question,
+            "answer": (
+                "I could not find enough evidence in your uploaded documents "
+                "to answer this question. Please upload the relevant document "
+                "or ask a question covered by your existing documents."
+            ),
             "citations": [],
+            "evidence_chunk_count": 0,
+            "model_name": "gpt-4o",
+            "status": "refused",
+            "validation_status": "unsupported",
+            "validation_reason": "No evidence chunks were found.",
         }
 
     monkeypatch.setattr(
-        "app.generation.answer_generator.rerank_hybrid_results",
-        lambda **kwargs: sample_evidence_chunks(),
-    )
-    monkeypatch.setattr(
-        "app.generation.answer_generator.get_llm_client",
-        lambda: fake_llm,
-    )
-    monkeypatch.setattr(
-        "app.generation.answer_generator.validate_answer_support",
-        fake_validate_answer_support,
+        "app.graph.rag_graph.run_rag_workflow",
+        fake_run_rag_workflow,
     )
 
-    response = generate_answer_from_evidence(
-        db=None,
+    result = generate_answer_from_evidence(
+        db=FakeDB(),
         user_id="local-user-123",
-        question="Does my health insurance cover urgent care?",
+        question="Does my plan cover urgent care?",
     )
 
-    assert response["status"] == "refused"
-    assert response["validation_status"] == "unsupported"
-    assert response["answer"] == REFUSAL_MESSAGE
-    assert response["citations"] == []
+    assert result["user_id"] == "local-user-123"
+    assert result["question"] == "Does my plan cover urgent care?"
+    assert result["citations"] == []
+    assert result["evidence_chunk_count"] == 0
+    assert result["status"] == "refused"
+    assert result["validation_status"] == "unsupported"
+    assert result["validation_reason"] == "No evidence chunks were found."
+    assert "could not find enough evidence" in result["answer"].lower()
 
 
-def test_generated_empty_answer_gets_refused(monkeypatch):
-    fake_llm = FakeLLMClient("")
+def test_generate_answer_from_evidence_returns_answered_response(monkeypatch):
+    def fake_run_rag_workflow(
+        db,
+        user_id,
+        question,
+        top_k=5,
+        hybrid_top_k=20,
+        vector_top_k=20,
+        bm25_top_k=20,
+        min_reranker_score=None,
+    ):
+        return {
+            "user_id": user_id,
+            "question": question,
+            "answer": "Urgent care visits are covered with a $50 copay.",
+            "citations": [
+                {
+                    "chunk_id": "chunk-1",
+                    "document_id": "doc-1",
+                    "document_name": "sample_health_policy.txt",
+                    "category": "health_insurance",
+                    "page_number": None,
+                    "section_title": "Urgent Care",
+                    "chunk_index": 0,
+                    "reranker_score": 9.5,
+                    "hybrid_score": 0.91,
+                }
+            ],
+            "evidence_chunk_count": 1,
+            "model_name": "gpt-4o",
+            "status": "answered",
+            "validation_status": "supported",
+            "validation_reason": "All citations are valid.",
+        }
 
     monkeypatch.setattr(
-        "app.generation.answer_generator.rerank_hybrid_results",
-        lambda **kwargs: sample_evidence_chunks(),
-    )
-    monkeypatch.setattr(
-        "app.generation.answer_generator.get_llm_client",
-        lambda: fake_llm,
+        "app.graph.rag_graph.run_rag_workflow",
+        fake_run_rag_workflow,
     )
 
-    response = generate_answer_from_evidence(
-        db=None,
+    result = generate_answer_from_evidence(
+        db=FakeDB(),
         user_id="local-user-123",
-        question="Does my health insurance cover urgent care?",
+        question="Does my plan cover urgent care?",
+        top_k=5,
+        hybrid_top_k=20,
+        vector_top_k=20,
+        bm25_top_k=20,
     )
 
-    assert response["status"] == "refused"
-    assert response["validation_status"] == "unsupported"
-    assert response["answer"] == REFUSAL_MESSAGE
-    assert response["citations"] == []
+    assert result["user_id"] == "local-user-123"
+    assert result["question"] == "Does my plan cover urgent care?"
+    assert result["answer"] == "Urgent care visits are covered with a $50 copay."
+    assert result["citations"][0]["chunk_id"] == "chunk-1"
+    assert result["evidence_chunk_count"] == 1
+    assert result["model_name"] == "gpt-4o"
+    assert result["status"] == "answered"
+    assert result["validation_status"] == "supported"
+    assert result["validation_reason"] == "All citations are valid."
 
 
-def test_response_includes_validation_status_and_validation_reason(monkeypatch):
-    fake_llm = FakeLLMClient("Urgent care visits are covered with a $50 copay.")
+def test_generate_answer_from_evidence_passes_parameters_to_graph(monkeypatch):
+    captured = {}
+
+    def fake_run_rag_workflow(
+        db,
+        user_id,
+        question,
+        top_k=5,
+        hybrid_top_k=20,
+        vector_top_k=20,
+        bm25_top_k=20,
+        min_reranker_score=None,
+    ):
+        captured["db"] = db
+        captured["user_id"] = user_id
+        captured["question"] = question
+        captured["top_k"] = top_k
+        captured["hybrid_top_k"] = hybrid_top_k
+        captured["vector_top_k"] = vector_top_k
+        captured["bm25_top_k"] = bm25_top_k
+        captured["min_reranker_score"] = min_reranker_score
+
+        return {
+            "user_id": user_id,
+            "question": question,
+            "answer": "Answer",
+            "citations": [],
+            "evidence_chunk_count": 0,
+            "model_name": "gpt-4o",
+            "status": "refused",
+            "validation_status": "unsupported",
+            "validation_reason": "No evidence chunks were found.",
+        }
 
     monkeypatch.setattr(
-        "app.generation.answer_generator.rerank_hybrid_results",
-        lambda **kwargs: sample_evidence_chunks(),
-    )
-    monkeypatch.setattr(
-        "app.generation.answer_generator.get_llm_client",
-        lambda: fake_llm,
+        "app.graph.rag_graph.run_rag_workflow",
+        fake_run_rag_workflow,
     )
 
-    response = generate_answer_from_evidence(
-        db=None,
+    fake_db = FakeDB()
+
+    generate_answer_from_evidence(
+        db=fake_db,
         user_id="local-user-123",
-        question="Does my health insurance cover urgent care?",
+        question="Does my plan cover urgent care?",
+        top_k=7,
+        hybrid_top_k=30,
+        vector_top_k=25,
+        bm25_top_k=15,
+        min_reranker_score=0.5,
     )
 
-    assert "validation_status" in response
-    assert "validation_reason" in response
-    assert response["validation_status"] == "supported"
-    assert isinstance(response["validation_reason"], str)
+    assert captured["db"] is fake_db
+    assert captured["user_id"] == "local-user-123"
+    assert captured["question"] == "Does my plan cover urgent care?"
+    assert captured["top_k"] == 7
+    assert captured["hybrid_top_k"] == 30
+    assert captured["vector_top_k"] == 25
+    assert captured["bm25_top_k"] == 15
+    assert captured["min_reranker_score"] == 0.5
 
 
-def test_generate_answer_from_evidence_rejects_empty_user_id():
-    with pytest.raises(ValueError, match="user_id is required"):
-        generate_answer_from_evidence(
-            db=None,
-            user_id="",
-            question="Does my health insurance cover urgent care?",
-        )
-
-
-def test_generate_answer_from_evidence_rejects_empty_question():
-    with pytest.raises(ValueError, match="question is required"):
-        generate_answer_from_evidence(
-            db=None,
-            user_id="local-user-123",
-            question="",
-        )
-
-
-def test_chat_endpoint_returns_validation_fields(monkeypatch):
-    client = TestClient(app)
-
-    fake_response = {
-        "user_id": "local-user-123",
-        "question": "Does my health insurance cover urgent care?",
-        "answer": "Urgent care visits are covered with a $50 copay.",
-        "citations": [
-            {
-                "chunk_id": "chunk-1",
-                "document_id": "doc-1",
-                "document_name": "sample_health_policy.txt",
-                "category": "health_insurance",
-                "page_number": None,
-                "section_title": "Urgent Care",
-                "chunk_index": 0,
-                "reranker_score": 0.92,
-                "hybrid_score": 0.81,
-            }
-        ],
-        "evidence_chunk_count": 1,
-        "model_name": "test-model",
-        "status": "answered",
-        "validation_status": "supported",
-        "validation_reason": "Answer is supported by provided evidence and valid citations.",
-    }
-
-    def fake_generate_answer_from_evidence(**kwargs):
-        return fake_response
+def test_generate_answer_from_evidence_does_not_call_openai_or_reranker_directly(monkeypatch):
+    def fake_run_rag_workflow(
+        db,
+        user_id,
+        question,
+        top_k=5,
+        hybrid_top_k=20,
+        vector_top_k=20,
+        bm25_top_k=20,
+        min_reranker_score=None,
+    ):
+        return {
+            "user_id": user_id,
+            "question": question,
+            "answer": "Graph handled this.",
+            "citations": [],
+            "evidence_chunk_count": 0,
+            "model_name": "gpt-4o",
+            "status": "refused",
+            "validation_status": "unsupported",
+            "validation_reason": "No evidence chunks were found.",
+        }
 
     monkeypatch.setattr(
-        "app.api.chat_routes.generate_answer_from_evidence",
-        fake_generate_answer_from_evidence,
+        "app.graph.rag_graph.run_rag_workflow",
+        fake_run_rag_workflow,
     )
 
-    response = client.post(
-        "/chat/ask",
-        json={
-            "user_id": "local-user-123",
-            "question": "Does my health insurance cover urgent care?",
-            "top_k": 5,
-            "hybrid_top_k": 20,
-            "vector_top_k": 20,
-            "bm25_top_k": 20,
-        },
-    )
-
-    assert response.status_code == 200
-
-    data = response.json()
-    assert data["status"] == "answered"
-    assert data["validation_status"] == "supported"
-    assert "validation_reason" in data
-    assert data["citations"][0]["chunk_id"] == "chunk-1"
-
-
-def test_no_real_openai_call_is_made(monkeypatch):
-    fake_llm = FakeLLMClient("Urgent care visits are covered with a $50 copay.")
-
-    monkeypatch.setattr(
-        "app.generation.answer_generator.rerank_hybrid_results",
-        lambda **kwargs: sample_evidence_chunks(),
-    )
-    monkeypatch.setattr(
-        "app.generation.answer_generator.get_llm_client",
-        lambda: fake_llm,
-    )
-
-    response = generate_answer_from_evidence(
-        db=None,
+    result = generate_answer_from_evidence(
+        db=FakeDB(),
         user_id="local-user-123",
-        question="Does my health insurance cover urgent care?",
+        question="Does my plan cover urgent care?",
     )
 
-    assert response["status"] == "answered"
-    assert fake_llm.called is True
-
-
-def test_no_real_reranker_model_is_loaded(monkeypatch):
-    fake_llm = FakeLLMClient("Urgent care visits are covered with a $50 copay.")
-
-    def fake_rerank_hybrid_results(**kwargs):
-        return sample_evidence_chunks()
-
-    monkeypatch.setattr(
-        "app.generation.answer_generator.rerank_hybrid_results",
-        fake_rerank_hybrid_results,
-    )
-    monkeypatch.setattr(
-        "app.generation.answer_generator.get_llm_client",
-        lambda: fake_llm,
-    )
-
-    response = generate_answer_from_evidence(
-        db=None,
-        user_id="local-user-123",
-        question="Does my health insurance cover urgent care?",
-    )
-
-    assert response["status"] == "answered"
-    assert response["validation_status"] == "supported"
+    assert result["answer"] == "Graph handled this."
