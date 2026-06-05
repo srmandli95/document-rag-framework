@@ -15,16 +15,15 @@ def ask_question(
     db: Session = Depends(get_db),
 ) -> AskResponse:
     """
-    Foundation answer-generation endpoint.
+    Graph-backed answer-generation endpoint.
 
     This endpoint:
     - accepts a user question
-    - retrieves reranked evidence chunks
-    - builds a grounded prompt
-    - calls the configured LLM provider
+    - sends the request into the LangGraph RAG workflow
+    - retrieves and reranks evidence chunks
+    - generates a grounded answer
+    - validates citation support
     - returns answer and citation metadata
-
-    LangGraph orchestration will be added later.
     """
     if not request.user_id or not request.user_id.strip():
         raise HTTPException(

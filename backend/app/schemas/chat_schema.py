@@ -20,6 +20,8 @@ class Citation(BaseModel):
     chunk_index: int | None = None
     reranker_score: float | None = None
     hybrid_score: float | None = None
+    vector_score: float | None = None
+    bm25_score: float | None = None
 
 
 class AskResponse(BaseModel):

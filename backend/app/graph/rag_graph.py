@@ -1,0 +1,70 @@
+from typing import Any
+
+from langgraph.graph import END, START, StateGraph
+
+from app.graph.nodes import (
+    final_response_node,
+    generate_answer_node,
+    load_user_context_node,
+    retrieve_and_rerank_node,
+    validate_citations_node,
+)
+from app.graph.state import RAGState
+
+
+def build_rag_graph():
+    graph_builder = StateGraph(RAGState)
+
+    graph_builder.add_node("load_user_context", load_user_context_node)
+    graph_builder.add_node("retrieve_and_rerank", retrieve_and_rerank_node)
+    graph_builder.add_node("generate_answer", generate_answer_node)
+    graph_builder.add_node("validate_citations", validate_citations_node)
+    graph_builder.add_node("final_response", final_response_node)
+
+    graph_builder.add_edge(START, "load_user_context")
+    graph_builder.add_edge("load_user_context", "retrieve_and_rerank")
+    graph_builder.add_edge("retrieve_and_rerank", "generate_answer")
+    graph_builder.add_edge("generate_answer", "validate_citations")
+    graph_builder.add_edge("validate_citations", "final_response")
+    graph_builder.add_edge("final_response", END)
+
+    return graph_builder.compile()
+
+
+def run_rag_workflow(
+    db: Any,
+    user_id: str,
+    question: str,
+    top_k: int = 5,
+    hybrid_top_k: int = 20,
+    vector_top_k: int = 20,
+    bm25_top_k: int = 20,
+    min_reranker_score: float | None = None,
+) -> dict[str, Any]:
+    graph = build_rag_graph()
+
+    initial_state: RAGState = {
+        "db": db,
+        "user_id": user_id,
+        "question": question,
+        "top_k": top_k,
+        "hybrid_top_k": hybrid_top_k,
+        "vector_top_k": vector_top_k,
+        "bm25_top_k": bm25_top_k,
+        "min_reranker_score": min_reranker_score,
+        "user_context": {},
+        "evidence_chunks": [],
+        "generated_answer": None,
+        "citations": [],
+        "validation_status": None,
+        "validation_reason": None,
+        "final_answer": None,
+        "final_response": None,
+        "model_name": None,
+        "status": None,
+        "error": None,
+    }
+
+    final_state = graph.invoke(initial_state)
+
+    return final_state["final_response"]
