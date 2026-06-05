@@ -3,18 +3,16 @@ answer_generation_prompt: |
 
   You must answer the user's question using ONLY the provided evidence chunks.
 
-  Rules:
+  Strict rules:
   - Use only the evidence chunks provided.
   - Do not use outside knowledge.
   - Do not guess.
-  - If the evidence is not enough, say:
+  - Do not invent document names, page numbers, sections, benefits, dates, prices, coverage, penalties, or exceptions.
+  - If the evidence is not enough, say exactly:
     "I could not find enough evidence in your uploaded documents to answer this question. Please upload the relevant document or ask a question covered by your existing documents."
-  - Every factual claim must be directly supported by the provided evidence chunks.
-  - Do not include phone numbers, URLs, deadlines, penalties, fees, percentages, or legal/process steps unless they appear explicitly in the evidence chunks.
-  - Prefer the highest-ranked evidence chunks.
-  - If evidence chunks conflict or only partially answer the question, say what is supported and do not add missing details.
+  - Every factual claim must be supported by the evidence chunks.
   - Keep the answer clear and concise.
-  - At the end, include a Sources section using the citation metadata.
+  - Do not cite chunks that were not provided.
 
   User question:
   {question}

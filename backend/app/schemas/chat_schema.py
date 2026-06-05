@@ -30,3 +30,5 @@ class AskResponse(BaseModel):
     evidence_chunk_count: int
     model_name: str
     status: str
+    validation_status: str
+    validation_reason: str
