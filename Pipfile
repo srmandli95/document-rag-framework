@@ -23,6 +23,7 @@ pgvector = "*"
 rank-bm25 = "*"
 openai = "*"
 pyyaml = "*"
+langgraph = "*"
 
 [dev-packages]
 pytest = "*"
