@@ -1,0 +1,30 @@
+from typing import Any, TypedDict
+
+
+class RAGState(TypedDict, total=False):
+    db: Any
+    user_id: str
+    question: str
+
+    top_k: int
+    hybrid_top_k: int
+    vector_top_k: int
+    bm25_top_k: int
+    min_reranker_score: float | None
+
+    user_context: dict[str, Any]
+
+    evidence_chunks: list[dict[str, Any]]
+
+    generated_answer: str | None
+    citations: list[dict[str, Any]]
+
+    validation_status: str | None
+    validation_reason: str | None
+
+    final_answer: str | None
+    final_response: dict[str, Any] | None
+
+    model_name: str | None
+    status: str | None
+    error: str | None
