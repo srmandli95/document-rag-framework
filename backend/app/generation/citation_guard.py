@@ -17,17 +17,26 @@ CITATION_FIELDS = [
     "chunk_index",
     "reranker_score",
     "hybrid_score",
+    "vector_score",
+    "bm25_score",
 ]
 
 
-def build_citations_from_evidence(evidence_chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def build_citations_from_evidence(
+    evidence_chunks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     citations: list[dict[str, Any]] = []
 
     for chunk in evidence_chunks:
         citation = {
             field: chunk.get(field)
             for field in CITATION_FIELDS
+            if field in chunk
         }
+
+        if "chunk_id" not in citation:
+            citation["chunk_id"] = chunk.get("id")
+
         citations.append(citation)
 
     return citations
@@ -38,105 +47,153 @@ def citation_chunk_ids_are_valid(
     evidence_chunks: list[dict[str, Any]],
 ) -> bool:
     evidence_chunk_ids = {
-        chunk.get("chunk_id")
+        chunk.get("chunk_id") or chunk.get("id")
         for chunk in evidence_chunks
-        if chunk.get("chunk_id")
+        if chunk.get("chunk_id") or chunk.get("id")
     }
 
     if not evidence_chunk_ids:
         return False
 
-    for citation in citations:
-        citation_chunk_id = citation.get("chunk_id")
+    citation_chunk_ids = {
+        citation.get("chunk_id")
+        for citation in citations
+        if citation.get("chunk_id")
+    }
 
-        if not citation_chunk_id:
-            return False
+    if not citation_chunk_ids:
+        return False
 
-        if citation_chunk_id not in evidence_chunk_ids:
-            return False
+    return citation_chunk_ids.issubset(evidence_chunk_ids)
 
-    return True
+
+def check_evidence_sufficiency(
+    evidence_chunks: list[dict[str, Any]],
+    min_evidence_chunks: int = 1,
+    min_reranker_score: float | None = None,
+) -> dict[str, Any]:
+    if not evidence_chunks:
+        return {
+            "evidence_sufficient": False,
+            "reason": "No evidence chunks were retrieved.",
+        }
+
+    if len(evidence_chunks) < min_evidence_chunks:
+        return {
+            "evidence_sufficient": False,
+            "reason": (
+                f"Only {len(evidence_chunks)} evidence chunk(s) were retrieved, "
+                f"but at least {min_evidence_chunks} are required."
+            ),
+        }
+
+    if min_reranker_score is not None:
+        has_strong_chunk = any(
+            chunk.get("reranker_score") is not None
+            and float(chunk["reranker_score"]) >= min_reranker_score
+            for chunk in evidence_chunks
+        )
+
+        if not has_strong_chunk:
+            return {
+                "evidence_sufficient": False,
+                "reason": (
+                    "Retrieved evidence did not meet the minimum reranker score "
+                    f"threshold of {min_reranker_score}."
+                ),
+            }
+
+    return {
+        "evidence_sufficient": True,
+        "reason": "Retrieved evidence is sufficient for answer generation.",
+    }
 
 
 def has_sufficient_evidence(
     evidence_chunks: list[dict[str, Any]],
     min_evidence_chunks: int = 1,
+    min_reranker_score: float | None = None,
 ) -> bool:
-    if min_evidence_chunks < 1:
-        min_evidence_chunks = 1
+    """
+    Backward-compatible helper for older tests/code.
 
-    return len(evidence_chunks) >= min_evidence_chunks
+    Day 14 uses check_evidence_sufficiency() because it returns both:
+    - evidence_sufficient
+    - reason
+
+    This wrapper preserves the old boolean behavior.
+    """
+    result = check_evidence_sufficiency(
+        evidence_chunks=evidence_chunks,
+        min_evidence_chunks=min_evidence_chunks,
+        min_reranker_score=min_reranker_score,
+    )
+
+    return bool(result["evidence_sufficient"])
 
 
-def _unsupported(reason: str) -> dict[str, Any]:
+def _unsupported_result(reason: str) -> dict[str, Any]:
     return {
         "validation_status": "unsupported",
-        "reason": reason,
+        "validation_reason": reason,
         "final_answer": REFUSAL_MESSAGE,
         "citations": [],
     }
 
 
-def _supported(
+def _supported_result(
     answer: str,
     citations: list[dict[str, Any]],
-    reason: str = "Answer is supported by provided evidence and valid citations.",
+    reason: str = "Answer citations match retrieved evidence chunks.",
 ) -> dict[str, Any]:
     return {
         "validation_status": "supported",
-        "reason": reason,
+        "validation_reason": reason,
         "final_answer": answer,
         "citations": citations,
     }
 
 
-def _has_passing_reranker_score(
-    evidence_chunks: list[dict[str, Any]],
-    min_reranker_score: float,
-) -> bool:
-    for chunk in evidence_chunks:
-        score = chunk.get("reranker_score")
-
-        if score is None:
-            continue
-
-        try:
-            if float(score) >= min_reranker_score:
-                return True
-        except (TypeError, ValueError):
-            continue
-
-    return False
-
-
 def validate_answer_support(
-    answer: str,
-    evidence_chunks: list[dict[str, Any]],
+    answer: str | None,
     citations: list[dict[str, Any]],
-    min_evidence_chunks: int = 1,
+    evidence_chunks: list[dict[str, Any]],
     min_reranker_score: float | None = None,
 ) -> dict[str, Any]:
-    if not has_sufficient_evidence(evidence_chunks, min_evidence_chunks):
-        return _unsupported("Not enough evidence chunks were provided.")
+    """
+    Validate whether the generated answer is supported by retrieved evidence.
 
+    This function intentionally returns:
+    - validation_status
+    - validation_reason
+    - final_answer
+    - citations
+
+    Older tests and the Day 13/Day 14 graph expect this shape.
+    """
     if not answer or not answer.strip():
-        return _unsupported("Generated answer was empty.")
+        return _unsupported_result("No generated answer was provided.")
 
-    normalized_answer = answer.strip()
+    cleaned_answer = answer.strip()
 
-    if REFUSAL_MESSAGE in normalized_answer:
-        return _unsupported("Generated answer was already a refusal.")
+    if cleaned_answer == REFUSAL_MESSAGE:
+        return _unsupported_result("Generated answer is already a refusal message.")
+
+    evidence_result = check_evidence_sufficiency(
+        evidence_chunks=evidence_chunks,
+        min_evidence_chunks=1,
+        min_reranker_score=min_reranker_score,
+    )
+
+    if not evidence_result["evidence_sufficient"]:
+        return _unsupported_result(str(evidence_result["reason"]))
 
     if not citations:
-        return _unsupported("Generated answer did not include citation metadata.")
+        return _unsupported_result("No citations were provided.")
 
     if not citation_chunk_ids_are_valid(citations, evidence_chunks):
-        return _unsupported("One or more citation chunk IDs are missing or not present in evidence chunks.")
+        return _unsupported_result(
+            "One or more citations do not match retrieved evidence chunks."
+        )
 
-    if min_reranker_score is not None:
-        if not _has_passing_reranker_score(evidence_chunks, min_reranker_score):
-            return _unsupported(
-                f"No evidence chunk met the minimum reranker score threshold: {min_reranker_score}."
-            )
-
-    return _supported(normalized_answer, citations)
+    return _supported_result(cleaned_answer, citations)
