@@ -3,10 +3,12 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 
 from app.graph.nodes import (
+    check_evidence_sufficiency_node,
     final_response_node,
     generate_answer_node,
     load_user_context_node,
     retrieve_and_rerank_node,
+    rewrite_query_node,
     validate_citations_node,
 )
 from app.graph.state import RAGState
@@ -16,14 +18,18 @@ def build_rag_graph():
     graph_builder = StateGraph(RAGState)
 
     graph_builder.add_node("load_user_context", load_user_context_node)
+    graph_builder.add_node("rewrite_query", rewrite_query_node)
     graph_builder.add_node("retrieve_and_rerank", retrieve_and_rerank_node)
+    graph_builder.add_node("check_evidence_sufficiency", check_evidence_sufficiency_node)
     graph_builder.add_node("generate_answer", generate_answer_node)
     graph_builder.add_node("validate_citations", validate_citations_node)
     graph_builder.add_node("final_response", final_response_node)
 
     graph_builder.add_edge(START, "load_user_context")
-    graph_builder.add_edge("load_user_context", "retrieve_and_rerank")
-    graph_builder.add_edge("retrieve_and_rerank", "generate_answer")
+    graph_builder.add_edge("load_user_context", "rewrite_query")
+    graph_builder.add_edge("rewrite_query", "retrieve_and_rerank")
+    graph_builder.add_edge("retrieve_and_rerank", "check_evidence_sufficiency")
+    graph_builder.add_edge("check_evidence_sufficiency", "generate_answer")
     graph_builder.add_edge("generate_answer", "validate_citations")
     graph_builder.add_edge("validate_citations", "final_response")
     graph_builder.add_edge("final_response", END)
@@ -47,13 +53,16 @@ def run_rag_workflow(
         "db": db,
         "user_id": user_id,
         "question": question,
+        "rewritten_question": None,
         "top_k": top_k,
         "hybrid_top_k": hybrid_top_k,
         "vector_top_k": vector_top_k,
         "bm25_top_k": bm25_top_k,
         "min_reranker_score": min_reranker_score,
-        "user_context": {},
+        "user_context": None,
         "evidence_chunks": [],
+        "evidence_sufficient": None,
+        "evidence_sufficiency_reason": None,
         "generated_answer": None,
         "citations": [],
         "validation_status": None,
