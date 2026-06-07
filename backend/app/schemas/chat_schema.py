@@ -1,36 +1,33 @@
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
 class AskRequest(BaseModel):
     user_id: str
     question: str
-    top_k: int = Field(default=5, ge=1)
-    hybrid_top_k: int = Field(default=20, ge=1)
-    vector_top_k: int = Field(default=20, ge=1)
-    bm25_top_k: int = Field(default=20, ge=1)
 
+    top_k: int = Field(default=5, ge=1, le=50)
+    hybrid_top_k: int = Field(default=20, ge=1, le=100)
+    vector_top_k: int = Field(default=20, ge=1, le=100)
+    bm25_top_k: int = Field(default=20, ge=1, le=100)
 
-class Citation(BaseModel):
-    chunk_id: str | None = None
-    document_id: str | None = None
-    document_name: str | None = None
-    category: str | None = None
-    page_number: int | None = None
-    section_title: str | None = None
-    chunk_index: int | None = None
-    reranker_score: float | None = None
-    hybrid_score: float | None = None
-    vector_score: float | None = None
-    bm25_score: float | None = None
+    min_reranker_score: float | None = None
 
 
 class AskResponse(BaseModel):
     user_id: str
     question: str
+    rewritten_question: str | None = None
+
     answer: str
-    citations: list[Citation]
-    evidence_chunk_count: int
-    model_name: str
-    status: str
-    validation_status: str
-    validation_reason: str
+    citations: list[dict[str, Any]] = []
+
+    validation_status: str | None = None
+    validation_reason: str | None = None
+
+    evidence_sufficient: bool | None = None
+    evidence_sufficiency_reason: str | None = None
+
+    model_name: str | None = None
+    status: str | None = None
