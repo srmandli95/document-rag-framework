@@ -3,8 +3,10 @@ from typing import Any, TypedDict
 
 class RAGState(TypedDict, total=False):
     db: Any
+
     user_id: str
     question: str
+    rewritten_question: str | None
 
     top_k: int
     hybrid_top_k: int
@@ -12,9 +14,11 @@ class RAGState(TypedDict, total=False):
     bm25_top_k: int
     min_reranker_score: float | None
 
-    user_context: dict[str, Any]
+    user_context: dict[str, Any] | None
 
     evidence_chunks: list[dict[str, Any]]
+    evidence_sufficient: bool | None
+    evidence_sufficiency_reason: str | None
 
     generated_answer: str | None
     citations: list[dict[str, Any]]
