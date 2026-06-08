@@ -11,6 +11,11 @@ class Settings(BaseSettings):
 
     JWT_SECRET_KEY: str = "change_me"
 
+    ASYNC_DATABASE_URL: str = (
+        "postgresql+asyncpg://personal_policy_rag_assistant:"
+        "personal_policy_rag_assistant@postgres:5432/personal_policy_rag_assistant"
+    )
+
     RAW_DOCUMENTS_DIR: str = "/app/data/raw_documents"
     REDACTED_DOCUMENTS_DIR: str = "/app/data/redacted_documents"
     EXTRACTED_TEXT_DIR: str = "/app/data/extracted_text"

@@ -182,6 +182,7 @@ def validate_citations_node(state: RAGState) -> RAGState:
 
 def final_response_node(state: RAGState) -> RAGState:
     final_answer = state.get("final_answer") or state.get("generated_answer") or get_refusal_message()
+    evidence_chunks = state.get("evidence_chunks", [])
 
     final_response = {
         "user_id": state.get("user_id"),
@@ -189,6 +190,10 @@ def final_response_node(state: RAGState) -> RAGState:
         "rewritten_question": state.get("rewritten_question"),
         "answer": final_answer,
         "citations": state.get("citations", []),
+
+        "evidence_chunks": evidence_chunks,
+        "evidence_chunk_count": len(evidence_chunks),
+
         "validation_status": state.get("validation_status"),
         "validation_reason": state.get("validation_reason"),
         "evidence_sufficient": state.get("evidence_sufficient"),
