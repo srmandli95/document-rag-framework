@@ -1,7 +1,10 @@
 [project]
 name = "PersonalPolicyRagAssistant"
-public = false
+description = "A personal policy RAG assistant connected to FastAPI."
 
 [UI]
 name = "PersonalPolicyRagAssistant"
-description = "Private RAG assistant for personal policy and life documents."
+description = "Ask questions about your uploaded personal policy documents."
+
+[features]
+unsafe_allow_html = false
