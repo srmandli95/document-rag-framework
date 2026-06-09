@@ -12,21 +12,24 @@ from app.schemas.document_schema import (
     DocumentListResponse,
     DocumentMetadata,
     DocumentUploadResponse,
+    DocumentExtractionResponse,
+    DocumentChunkingResponse,
+    DocumentEmbeddingResponse,
+    DocumentProcessingResponse,
 )
 from app.services.document_service import (
     create_document_record,
     get_document_by_id,
     get_documents_by_user,
     soft_delete_document,
+    get_document_by_id
 )
 from app.services.local_storage_service import LocalStorageService
 from app.ingestion.extraction_service import extract_and_store_document_text
-from app.schemas.document_schema import DocumentExtractionResponse
-from app.services.document_service import get_document_by_id
 from app.ingestion.chunking_service import chunk_and_store_document_text
-from app.schemas.document_schema import DocumentChunkingResponse
 from app.ingestion.embedding_indexing_service import embed_document_chunks
-from app.schemas.document_schema import DocumentEmbeddingResponse
+from app.ingestion.document_processing_service import process_document
+
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
@@ -371,3 +374,53 @@ def embed_document(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+
+
+@router.post("/{document_id}/process", response_model=DocumentProcessingResponse)
+def process_uploaded_document(
+    document_id: str,
+    user_id: str,
+    db: Session = Depends(get_db),
+) -> DocumentProcessingResponse:
+    """
+    Process an uploaded document through the full synchronous pipeline:
+
+        extract -> chunk -> embed
+
+    Day 17 keeps this synchronous. Later this can move to a background worker.
+    """
+    if not user_id or not user_id.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="user_id is required.",
+        )
+
+    document = get_document_by_id(
+        db=db,
+        document_id=document_id,
+        user_id=user_id,
+    )
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
+        )
+
+    if document.status == "deleted":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
+        )
+
+    if document.status == "embedded":
+        return DocumentProcessingResponse(
+            document_id=str(document.id),
+            user_id=document.user_id,
+            status=document.status,
+            steps=[],
+            message="Document is already processed.",
+        )
+
+    result = process_document(db=db, document=document)
+    return DocumentProcessingResponse(**result)
