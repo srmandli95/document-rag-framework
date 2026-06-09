@@ -74,3 +74,16 @@ class DocumentEmbeddingResponse(BaseModel):
     embedding_provider: str
     embedding_model_name: str
     message: str
+
+class DocumentProcessingStep(BaseModel):
+    name: str
+    status: str
+    message: str
+
+
+class DocumentProcessingResponse(BaseModel):
+    document_id: str | None
+    user_id: str | None
+    status: str
+    steps: list[DocumentProcessingStep]
+    message: str
