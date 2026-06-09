@@ -37,13 +37,14 @@ services:
 
   chainlit:
     build:
-      context: .
-      dockerfile: chainlit_ui/Dockerfile
-    container_name: personal-policy-rag-assistant-chainlit
-    environment:
-      BACKEND_BASE_URL: http://backend:8000
+      context: ./chainlit_ui
+      dockerfile: Dockerfile
+    container_name: personal_policy_rag_chainlit
     ports:
       - "8501:8501"
+    environment:
+      BACKEND_API_URL: ${BACKEND_API_URL}
+      CHAINLIT_AUTH_SECRET: ${CHAINLIT_AUTH_SECRET}
     depends_on:
       - backend
 
