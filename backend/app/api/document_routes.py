@@ -375,25 +375,24 @@ def embed_document(
             detail=str(exc),
         ) from exc
 
-
 @router.post("/{document_id}/process", response_model=DocumentProcessingResponse)
 def process_uploaded_document(
     document_id: str,
     user_id: str,
+    force: bool = Query(default=False),
     db: Session = Depends(get_db),
 ) -> DocumentProcessingResponse:
     """
-    Process an uploaded document through the full synchronous pipeline:
+    Run the full document processing pipeline for a document.
 
-        extract -> chunk -> embed
+    Supports:
+    - Normal process:
+      POST /documents/{document_id}/process?user_id=local-user-123
 
-    Day 17 keeps this synchronous. Later this can move to a background worker.
+    - Force reprocess:
+      POST /documents/{document_id}/process?user_id=local-user-123&force=true
     """
-    if not user_id or not user_id.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="user_id is required.",
-        )
+    _validate_user_id(user_id)
 
     document = get_document_by_id(
         db=db,
@@ -407,20 +406,26 @@ def process_uploaded_document(
             detail="Document not found.",
         )
 
-    if document.status == "deleted":
+    if getattr(document, "status", None) == "deleted":
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found.",
         )
 
-    if document.status == "embedded":
-        return DocumentProcessingResponse(
-            document_id=str(document.id),
-            user_id=document.user_id,
-            status=document.status,
-            steps=[],
-            message="Document is already processed.",
+    if getattr(document, "is_deleted", False):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
         )
 
-    result = process_document(db=db, document=document)
-    return DocumentProcessingResponse(**result)
+    if getattr(document, "deleted_at", None) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
+        )
+
+    return process_document(
+        db=db,
+        document=document,
+        force=force,
+    )
