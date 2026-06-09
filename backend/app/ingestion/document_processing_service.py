@@ -2,194 +2,262 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.ingestion.extraction_service import extract_and_store_document_text
 from app.ingestion.chunking_service import chunk_and_store_document_text
 from app.ingestion.embedding_indexing_service import embed_document_chunks
+from app.ingestion.extraction_service import extract_and_store_document_text
+from app.models.document import Document
+from app.schemas.document_schema import (
+    DocumentProcessingResponse,
+    DocumentProcessingStep,
+)
 
 
-def _step_result(name: str, status: str, message: str) -> dict[str, str]:
-    return {
-        "name": name,
-        "status": status,
-        "message": message,
-    }
+SUCCESS_STATUSES = {"completed", "success", "extracted", "chunked", "embedded"}
 
 
-def _mark_document_failed(db: Session, document: Any) -> None:
-    """
-    Best-effort failure status update.
-
-    Existing extraction/chunking/embedding services may already mark failure.
-    This helper keeps Day 17 orchestration safe if a service raises before
-    updating the document status.
-    """
-    try:
-        document.status = "failed"
-        db.add(document)
-        db.commit()
-        db.refresh(document)
-    except Exception:
-        db.rollback()
+def _step_result(name: str, status: str, message: str) -> DocumentProcessingStep:
+    return DocumentProcessingStep(
+        name=name,
+        status=status,
+        message=message,
+    )
 
 
-def _refresh_document(db: Session, document: Any) -> Any:
-    """
-    Refresh the SQLAlchemy document instance after each processing step.
+def _get_response_value(response: Any, field_name: str, default: Any = None) -> Any:
+    if isinstance(response, dict):
+        return response.get(field_name, default)
 
-    This avoids stale local status when the underlying service updates
-    document.status and commits.
-    """
+    return getattr(response, field_name, default)
+
+
+def _is_successful_step(response: Any) -> bool:
+    status = _get_response_value(response, "status", "")
+    return str(status).lower() in SUCCESS_STATUSES
+
+
+def _message_from_response(response: Any, default: str) -> str:
+    message = _get_response_value(response, "message", None)
+    return message or default
+
+
+def _is_deleted_document(document: Document) -> bool:
+    if getattr(document, "status", None) == "deleted":
+        return True
+
+    if getattr(document, "is_deleted", False):
+        return True
+
+    if getattr(document, "deleted_at", None) is not None:
+        return True
+
+    return False
+
+
+def _mark_document_failed(db: Session, document: Document, message: str) -> None:
+    document.status = "failed"
+    db.add(document)
+    db.commit()
+    db.refresh(document)
+
+
+def _refresh_document(db: Session, document: Document) -> Document:
     db.refresh(document)
     return document
 
 
 def process_document(
     db: Session,
-    document: Any,
-) -> dict[str, Any]:
+    document: Document,
+    force: bool = False,
+) -> DocumentProcessingResponse:
     """
-    Run the synchronous document processing pipeline:
+    Run the full document processing pipeline:
 
-        extract -> chunk -> embed
+    extract -> chunk -> embed
 
-    This function intentionally does not duplicate extraction, chunking,
-    or embedding logic. It only orchestrates existing ingestion services.
+    If the document is already embedded:
+    - force=False returns an already-processed response.
+    - force=True reruns the full pipeline.
+
+    The chunking service is expected to remove old chunks before creating
+    new ones, so force reprocessing should not duplicate chunks.
     """
+    steps: list[DocumentProcessingStep] = []
+
     if document is None:
-        return {
-            "document_id": None,
-            "user_id": None,
-            "status": "failed",
-            "steps": [],
-            "message": "Document not found.",
-        }
+        return DocumentProcessingResponse(
+            document_id="",
+            user_id="",
+            status="failed",
+            steps=[
+                _step_result(
+                    name="validate",
+                    status="failed",
+                    message="Document does not exist.",
+                )
+            ],
+            message="Document does not exist.",
+        )
 
-    if getattr(document, "status", None) == "deleted":
-        return {
-            "document_id": str(document.id),
-            "user_id": document.user_id,
-            "status": "deleted",
-            "steps": [],
-            "message": "Deleted documents cannot be processed.",
-        }
+    if _is_deleted_document(document):
+        return DocumentProcessingResponse(
+            document_id=str(document.id),
+            user_id=document.user_id,
+            status="deleted",
+            steps=[
+                _step_result(
+                    name="validate",
+                    status="failed",
+                    message="Deleted documents cannot be processed.",
+                )
+            ],
+            message="Deleted documents cannot be processed.",
+        )
 
-    if getattr(document, "status", None) == "embedded":
-        return {
-            "document_id": str(document.id),
-            "user_id": document.user_id,
-            "status": "embedded",
-            "steps": [],
-            "message": "Document is already processed.",
-        }
+    if document.status == "embedded" and not force:
+        return DocumentProcessingResponse(
+            document_id=str(document.id),
+            user_id=document.user_id,
+            status=document.status,
+            steps=[
+                _step_result(
+                    name="process",
+                    status="skipped",
+                    message="Document is already processed and ready for questions.",
+                )
+            ],
+            message="Document is already processed and ready for questions. Use /reprocess if you want to rerun extraction, chunking, and embedding.",
+        )
 
-    steps: list[dict[str, str]] = []
-
-    # Step 1: Extract
     try:
-        extract_and_store_document_text(db, document)
+        extraction_response = extract_and_store_document_text(db, document)
         document = _refresh_document(db, document)
 
-        if document.status != "extracted":
-            raise RuntimeError(
-                f"Extraction completed but document status is '{document.status}', expected 'extracted'."
+        extraction_message = _message_from_response(
+            extraction_response,
+            "Text extraction completed.",
+        )
+
+        if not _is_successful_step(extraction_response):
+            steps.append(
+                _step_result(
+                    name="extract",
+                    status="failed",
+                    message=extraction_message,
+                )
+            )
+            _mark_document_failed(db, document, extraction_message)
+
+            return DocumentProcessingResponse(
+                document_id=str(document.id),
+                user_id=document.user_id,
+                status=document.status,
+                steps=steps,
+                message="Document processing failed during extraction.",
             )
 
         steps.append(
             _step_result(
                 name="extract",
                 status="completed",
-                message="Document text extracted successfully.",
+                message=extraction_message,
             )
         )
-    except Exception as exc:
-        _mark_document_failed(db, document)
-        steps.append(
-            _step_result(
-                name="extract",
-                status="failed",
-                message=f"Document text extraction failed: {exc}",
-            )
-        )
-        return {
-            "document_id": str(document.id),
-            "user_id": document.user_id,
-            "status": "failed",
-            "steps": steps,
-            "message": "Document processing failed during extraction.",
-        }
 
-    # Step 2: Chunk
-    try:
-        chunk_and_store_document_text(db, document)
+        chunking_response = chunk_and_store_document_text(db, document)
         document = _refresh_document(db, document)
 
-        if document.status != "chunked":
-            raise RuntimeError(
-                f"Chunking completed but document status is '{document.status}', expected 'chunked'."
+        chunking_message = _message_from_response(
+            chunking_response,
+            "Document chunking completed.",
+        )
+
+        if not _is_successful_step(chunking_response):
+            steps.append(
+                _step_result(
+                    name="chunk",
+                    status="failed",
+                    message=chunking_message,
+                )
+            )
+            _mark_document_failed(db, document, chunking_message)
+
+            return DocumentProcessingResponse(
+                document_id=str(document.id),
+                user_id=document.user_id,
+                status=document.status,
+                steps=steps,
+                message="Document processing failed during chunking.",
             )
 
         steps.append(
             _step_result(
                 name="chunk",
                 status="completed",
-                message="Document text chunked successfully.",
+                message=chunking_message,
             )
         )
-    except Exception as exc:
-        _mark_document_failed(db, document)
-        steps.append(
-            _step_result(
-                name="chunk",
-                status="failed",
-                message=f"Document text chunking failed: {exc}",
-            )
-        )
-        return {
-            "document_id": str(document.id),
-            "user_id": document.user_id,
-            "status": "failed",
-            "steps": steps,
-            "message": "Document processing failed during chunking.",
-        }
 
-    # Step 3: Embed
-    try:
-        embed_document_chunks(db, document)
+        embedding_response = embed_document_chunks(db, document)
         document = _refresh_document(db, document)
 
-        if document.status != "embedded":
-            raise RuntimeError(
-                f"Embedding completed but document status is '{document.status}', expected 'embedded'."
+        embedding_message = _message_from_response(
+            embedding_response,
+            "Document embedding completed.",
+        )
+
+        if not _is_successful_step(embedding_response):
+            steps.append(
+                _step_result(
+                    name="embed",
+                    status="failed",
+                    message=embedding_message,
+                )
+            )
+            _mark_document_failed(db, document, embedding_message)
+
+            return DocumentProcessingResponse(
+                document_id=str(document.id),
+                user_id=document.user_id,
+                status=document.status,
+                steps=steps,
+                message="Document processing failed during embedding.",
             )
 
         steps.append(
             _step_result(
                 name="embed",
                 status="completed",
-                message="Document chunks embedded successfully.",
+                message=embedding_message,
             )
         )
+
+        document = _refresh_document(db, document)
+
+        return DocumentProcessingResponse(
+            document_id=str(document.id),
+            user_id=document.user_id,
+            status=document.status,
+            steps=steps,
+            message="Document processed successfully and is ready for questions.",
+        )
+
     except Exception as exc:
-        _mark_document_failed(db, document)
+        error_message = f"Document processing failed: {exc}"
+        _mark_document_failed(db, document, error_message)
+
         steps.append(
             _step_result(
-                name="embed",
+                name="process",
                 status="failed",
-                message=f"Document chunk embedding failed: {exc}",
+                message=error_message,
             )
         )
-        return {
-            "document_id": str(document.id),
-            "user_id": document.user_id,
-            "status": "failed",
-            "steps": steps,
-            "message": "Document processing failed during embedding.",
-        }
 
-    return {
-        "document_id": str(document.id),
-        "user_id": document.user_id,
-        "status": document.status,
-        "steps": steps,
-        "message": "Document processed successfully.",
-    }
+        return DocumentProcessingResponse(
+            document_id=str(document.id),
+            user_id=document.user_id,
+            status=document.status,
+            steps=steps,
+            message=error_message,
+        )

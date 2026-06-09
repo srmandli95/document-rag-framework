@@ -6,100 +6,139 @@ import httpx
 
 BACKEND_BASE_URL = os.getenv("BACKEND_BASE_URL", "http://backend:8000")
 
-async def upload_document(
-    user_id: str,
-    file_path: str,
-    file_name: str,
-    category: str,
-) -> dict[str, Any]:
-    """
-    Upload a document to the FastAPI backend.
 
-    Backend endpoint:
-        POST /documents/upload
-    """
-    url = f"{BACKEND_BASE_URL}/documents/upload"
+class APIClientError(Exception):
+    """Raised when the backend API returns an error or cannot be reached."""
 
-    with open(file_path, "rb") as file_obj:
-        files = {
-            "file": (file_name, file_obj),
-        }
-        data = {
-            "user_id": user_id,
-            "category": category,
-        }
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                url,
-                data=data,
+def _format_error(response: httpx.Response) -> str:
+    try:
+        error_body = response.json()
+    except ValueError:
+        return response.text or f"Request failed with status {response.status_code}"
+
+    if isinstance(error_body, dict):
+        detail = error_body.get("detail")
+        if isinstance(detail, str):
+            return detail
+
+        if isinstance(detail, list):
+            return "; ".join(str(item) for item in detail)
+
+        return str(error_body)
+
+    return str(error_body)
+
+
+async def _request(
+    method: str,
+    path: str,
+    *,
+    params: dict[str, Any] | None = None,
+    json: dict[str, Any] | None = None,
+    files: dict[str, Any] | None = None,
+    data: dict[str, Any] | None = None,
+    timeout: float = 120.0,
+) -> dict[str, Any] | list[dict[str, Any]]:
+    url = f"{BACKEND_BASE_URL}{path}"
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.request(
+                method=method,
+                url=url,
+                params=params,
+                json=json,
                 files=files,
+                data=data,
             )
+    except httpx.RequestError as exc:
+        raise APIClientError(
+            f"Could not connect to backend at {BACKEND_BASE_URL}. Error: {exc}"
+        ) from exc
 
     if response.status_code >= 400:
-        raise RuntimeError(_format_error(response))
+        raise APIClientError(_format_error(response))
+
+    if not response.content:
+        return {}
 
     return response.json()
 
 
-async def list_documents(
+async def upload_document(
     user_id: str,
-) -> list[dict[str, Any]]:
-    """
-    List documents for a user.
+    file_path: str,
+    file_name: str,
+    category: str = "general",
+) -> dict[str, Any]:
+    with open(file_path, "rb") as file:
+        files = {
+            "file": (
+                file_name,
+                file,
+                "application/octet-stream",
+            )
+        }
 
-    Backend endpoint:
-        GET /documents?user_id=...
-    """
-    url = f"{BACKEND_BASE_URL}/documents"
+        params = {
+            "user_id": user_id,
+            "category": category,
+        }
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.get(
-            url,
-            params={"user_id": user_id},
+        response = await _request(
+            "POST",
+            "/documents/upload",
+            params=params,
+            files=files,
+            timeout=120.0,
         )
 
-    if response.status_code >= 400:
-        raise RuntimeError(_format_error(response))
+    return dict(response)
 
-    payload = response.json()
 
-    if isinstance(payload, list):
-        return payload
+async def list_documents(user_id: str) -> dict[str, Any]:
+    response = await _request(
+        "GET",
+        "/documents",
+        params={"user_id": user_id},
+        timeout=60.0,
+    )
 
-    if isinstance(payload, dict):
-        if "documents" in payload:
-            return payload["documents"]
-        if "items" in payload:
-            return payload["items"]
+    return dict(response)
 
-    return []
+
+async def delete_document(user_id: str, document_id: str) -> dict[str, Any]:
+    response = await _request(
+        "DELETE",
+        f"/documents/{document_id}",
+        params={"user_id": user_id},
+        timeout=60.0,
+    )
+
+    return dict(response)
 
 
 async def process_document(
     user_id: str,
     document_id: str,
+    force: bool = False,
 ) -> dict[str, Any]:
-    """
-    Process an uploaded document through:
+    params: dict[str, Any] = {
+        "user_id": user_id,
+    }
 
-        extract -> chunk -> embed
+    if force:
+        params["force"] = "true"
 
-    Backend endpoint:
-        POST /documents/{document_id}/process?user_id=...
-    """
-    url = f"{BACKEND_BASE_URL}/documents/{document_id}/process"
+    response = await _request(
+        "POST",
+        f"/documents/{document_id}/process",
+        params=params,
+        timeout=300.0,
+    )
 
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        response = await client.post(
-            url,
-            params={"user_id": user_id},
-        )
-
-    if response.status_code >= 400:
-        raise RuntimeError(_format_error(response))
-
-    return response.json()
+    return dict(response)
 
 
 async def ask_question(
@@ -112,14 +151,6 @@ async def ask_question(
     bm25_top_k: int = 20,
     min_reranker_score: float | None = None,
 ) -> dict[str, Any]:
-    """
-    Ask a question using the backend RAG workflow.
-
-    Backend endpoint:
-        POST /chat/ask
-    """
-    url = f"{BACKEND_BASE_URL}/chat/ask"
-
     payload: dict[str, Any] = {
         "user_id": user_id,
         "question": question,
@@ -135,33 +166,11 @@ async def ask_question(
     if min_reranker_score is not None:
         payload["min_reranker_score"] = min_reranker_score
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
-        response = await client.post(
-            url,
-            json=payload,
-        )
+    response = await _request(
+        "POST",
+        "/chat/ask",
+        json=payload,
+        timeout=300.0,
+    )
 
-    if response.status_code >= 400:
-        raise RuntimeError(_format_error(response))
-
-    return response.json()
-
-
-def _format_error(response: httpx.Response) -> str:
-    """
-    Convert backend error responses into readable Chainlit errors.
-    """
-    try:
-        payload = response.json()
-    except Exception:
-        return f"Backend error {response.status_code}: {response.text}"
-
-    detail = payload.get("detail")
-
-    if isinstance(detail, str):
-        return f"Backend error {response.status_code}: {detail}"
-
-    if detail is not None:
-        return f"Backend error {response.status_code}: {detail}"
-
-    return f"Backend error {response.status_code}: {payload}"
+    return dict(response)

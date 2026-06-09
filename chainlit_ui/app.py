@@ -1,430 +1,158 @@
-import os
-from typing import Any
-
 import chainlit as cl
 
 from services.api_client import (
+    APIClientError,
     ask_question,
+    delete_document,
     list_documents,
     process_document,
     upload_document,
 )
 
 
-USER_ID = os.getenv("CHAINLIT_USER_ID", "local-user-123")
-DEFAULT_CATEGORY = os.getenv("DEFAULT_DOCUMENT_CATEGORY", "general")
+DEFAULT_USER_ID = "local-user-123"
+
+SUPPORTED_CATEGORIES = [
+    "health_insurance",
+    "auto_insurance",
+    "home_insurance",
+    "mortgage",
+    "hoa",
+    "employer_benefits",
+    "internet",
+    "utility",
+    "banking",
+    "credit_card",
+    "warranty",
+    "travel",
+    "general",
+]
 
 
-@cl.on_chat_start
-async def on_chat_start() -> None:
-    """
-    Initialize Chainlit chat session state.
-    """
-    cl.user_session.set("user_id", USER_ID)
-    cl.user_session.set("session_id", None)
+def _format_processing_steps(response: dict) -> str:
+    steps = response.get("steps") or []
 
-    await cl.Message(
-        content=(
-            "# PersonalPolicyRagAssistant\n\n"
-            "Upload a document, process it, and then ask questions from it.\n\n"
-            "Commands:\n\n"
-            "```text\n"
-            "/documents\n"
-            "/process <document_id>\n"
-            "```\n\n"
-            "After uploading a document, run `/process <document_id>` to prepare it for search."
-        )
-    ).send()
-
-
-@cl.on_message
-async def main(message: cl.Message) -> None:
-    """
-    Main Chainlit message handler.
-
-    Supported:
-    - file uploads
-    - /documents
-    - /process <document_id>
-    - normal RAG questions
-    """
-    user_id = cl.user_session.get("user_id") or USER_ID
-
-    if await handle_file_uploads(message, user_id):
-        return
-
-    if await handle_documents_command(message, user_id):
-        return
-
-    if await handle_process_command(message, user_id):
-        return
-
-    await handle_question(message, user_id)
-
-
-async def handle_file_uploads(message: cl.Message, user_id: str) -> bool:
-    """
-    Handle document uploads from Chainlit.
-
-    Upload only stores the file in the backend.
-    Processing is intentionally separate for Day 17.
-    """
-    elements = message.elements or []
-
-    file_elements = [
-        element
-        for element in elements
-        if getattr(element, "path", None)
-    ]
-
-    if not file_elements:
-        return False
-
-    uploaded_results: list[str] = []
-
-    for file_element in file_elements:
-        file_path = file_element.path
-        file_name = getattr(file_element, "name", None) or "uploaded_document"
-
-        try:
-            result = await upload_document(
-                user_id=user_id,
-                file_path=file_path,
-                file_name=file_name,
-                category=DEFAULT_CATEGORY,
-            )
-
-            document_id = _extract_document_id(result)
-            status = result.get("status", "uploaded")
-
-            uploaded_results.append(
-                (
-                    "✅ Document uploaded successfully.\n\n"
-                    f"**File:** `{file_name}`\n\n"
-                    f"**Document ID:** `{document_id}`\n\n"
-                    f"**Status:** `{status}`\n\n"
-                    "To prepare this document for search, type:\n\n"
-                    f"```text\n/process {document_id}\n```"
-                )
-            )
-
-        except Exception as exc:
-            uploaded_results.append(
-                (
-                    f"❌ Failed to upload `{file_name}`.\n\n"
-                    f"```text\n{exc}\n```"
-                )
-            )
-
-    await cl.Message(
-        content="\n\n---\n\n".join(uploaded_results)
-    ).send()
-
-    return True
-
-
-async def handle_documents_command(message: cl.Message, user_id: str) -> bool:
-    """
-    Handle:
-
-        /documents
-    """
-    content = message.content.strip()
-
-    if content != "/documents":
-        return False
-
-    try:
-        documents = await list_documents(user_id=user_id)
-    except Exception as exc:
-        await cl.Message(
-            content=(
-                "❌ Failed to list documents.\n\n"
-                f"```text\n{exc}\n```"
-            )
-        ).send()
-        return True
-
-    if not documents:
-        await cl.Message(
-            content="No documents found yet. Upload a document first."
-        ).send()
-        return True
-
-    lines = ["## Your Documents\n"]
-
-    for document in documents:
-        document_id = document.get("id") or document.get("document_id")
-        file_name = (
-            document.get("original_file_name")
-            or document.get("file_name")
-            or document.get("stored_file_name")
-            or "unknown"
-        )
-        category = document.get("category") or "unknown"
-        status = document.get("status") or "unknown"
-        readiness = _document_readiness_label(status)
-
-        lines.append(
-            (
-                f"- **{file_name}**\n"
-                f"  - Document ID: `{document_id}`\n"
-                f"  - Category: `{category}`\n"
-                f"  - Status: `{status}`\n"
-                f"  - Readiness: **{readiness}**"
-            )
-        )
-
-    await cl.Message(
-        content="\n".join(lines)
-    ).send()
-
-    return True
-
-
-async def handle_process_command(message: cl.Message, user_id: str) -> bool:
-    """
-    Handle:
-
-        /process <document_id>
-    """
-    content = message.content.strip()
-
-    if not content.startswith("/process"):
-        return False
-
-    parts = content.split(maxsplit=1)
-
-    if len(parts) != 2 or not parts[1].strip():
-        await cl.Message(
-            content=(
-                "Usage:\n\n"
-                "```text\n"
-                "/process <document_id>\n"
-                "```"
-            )
-        ).send()
-        return True
-
-    document_id = parts[1].strip()
-
-    await cl.Message(
-        content=f"Processing document `{document_id}`..."
-    ).send()
-
-    try:
-        result = await process_document(
-            user_id=user_id,
-            document_id=document_id,
-        )
-    except Exception as exc:
-        await cl.Message(
-            content=(
-                "❌ Document processing failed:\n\n"
-                f"```text\n{exc}\n```"
-            )
-        ).send()
-        return True
-
-    steps_text = _format_processing_steps(result.get("steps", []))
-    final_status = result.get("status", "unknown")
-    final_message = result.get("message", "")
-    result_document_id = result.get("document_id", document_id)
-
-    ready_message = ""
-    if final_status == "embedded":
-        ready_message = "\n\n✅ Document is ready for questions."
-
-    await cl.Message(
-        content=(
-            "## Document Processing Result\n\n"
-            f"**Document ID:** `{result_document_id}`\n\n"
-            f"**Final Status:** `{final_status}`\n\n"
-            f"{steps_text}\n\n"
-            f"**Message:** {final_message}"
-            f"{ready_message}"
-        )
-    ).send()
-
-    return True
-
-
-async def handle_question(message: cl.Message, user_id: str) -> None:
-    """
-    Handle normal user questions through backend /chat/ask.
-    """
-    question = message.content.strip()
-
-    if not question:
-        await cl.Message(
-            content="Please enter a question."
-        ).send()
-        return
-
-    session_id = cl.user_session.get("session_id")
-
-    try:
-        result = await ask_question(
-            user_id=user_id,
-            question=question,
-            session_id=session_id,
-        )
-    except Exception as exc:
-        await cl.Message(
-            content=(
-                "❌ Failed to get answer from backend.\n\n"
-                f"```text\n{exc}\n```"
-            )
-        ).send()
-        return
-
-    new_session_id = result.get("session_id")
-    if new_session_id:
-        cl.user_session.set("session_id", new_session_id)
-
-    answer = (
-        result.get("answer")
-        or result.get("final_answer")
-        or result.get("message")
-        or "No answer returned."
-    )
-
-    citations = result.get("citations") or []
-    metadata_text = _format_response_metadata(result)
-    citations_text = _format_citations(citations)
-
-    await cl.Message(
-        content=(
-            f"{answer}\n\n"
-            f"{metadata_text}\n\n"
-            f"{citations_text}"
-        )
-    ).send()
-
-
-def _format_processing_steps(steps: list[dict[str, Any]]) -> str:
-    """
-    Format processing pipeline steps for Chainlit display.
-    """
     if not steps:
-        return "No processing steps were run."
+        return "No processing steps returned."
 
-    lines: list[str] = []
+    lines = []
 
     for step in steps:
         name = step.get("name", "unknown")
         status = step.get("status", "unknown")
         message = step.get("message", "")
 
-        if status == "completed":
-            icon = "✅"
-        elif status == "failed":
-            icon = "❌"
-        else:
-            icon = "ℹ️"
+        lines.append(f"- {name}: {status} — {message}")
 
-        lines.append(
-            f"{icon} **{name}** — `{status}`\n{message}"
+    return "\n".join(lines)
+
+
+def _document_readiness_label(status: str | None) -> tuple[str, str]:
+    normalized_status = (status or "unknown").lower()
+
+    if normalized_status == "uploaded":
+        return (
+            "Not ready",
+            "type /process <document_id>",
         )
 
-    return "\n\n".join(lines)
+    if normalized_status == "processing":
+        return (
+            "Processing",
+            "wait or try /documents later",
+        )
+
+    if normalized_status == "extracted":
+        return (
+            "Partially processed",
+            "type /process <document_id>",
+        )
+
+    if normalized_status == "chunked":
+        return (
+            "Partially processed",
+            "type /process <document_id>",
+        )
+
+    if normalized_status == "embedded":
+        return (
+            "Ready for questions",
+            "Ask a question now.",
+        )
+
+    if normalized_status == "failed":
+        return (
+            "Failed",
+            "type /reprocess <document_id>",
+        )
+
+    if normalized_status == "deleted":
+        return (
+            "Deleted",
+            "No action available.",
+        )
+
+    return (
+        "Unknown",
+        "type /documents later or try /process <document_id>",
+    )
 
 
-def _document_readiness_label(status: str) -> str:
-    """
-    Convert backend document status into user-friendly readiness text.
-    """
-    if status == "embedded":
-        return "Ready for questions"
+def _format_response_metadata(response: dict) -> str:
+    metadata_lines = []
 
-    if status == "uploaded":
-        return "Not ready yet — run /process"
-
-    if status == "extracted":
-        return "Partially processed — needs chunking and embedding"
-
-    if status == "chunked":
-        return "Partially processed — needs embedding"
-
-    if status == "failed":
-        return "Processing failed"
-
-    if status == "deleted":
-        return "Deleted"
-
-    return "Unknown"
-
-
-def _format_response_metadata(result: dict[str, Any]) -> str:
-    """
-    Format response metadata if backend returns it.
-    """
-    status = result.get("status")
-    validation_status = result.get("validation_status")
-    validation_reason = result.get("validation_reason")
-    session_id = result.get("session_id")
-
-    lines: list[str] = []
+    status = response.get("status")
+    validation_status = response.get("validation_status")
+    validation_reason = response.get("validation_reason")
+    model_name = response.get("model_name")
+    session_id = response.get("session_id")
 
     if status:
-        lines.append(f"- Status: `{status}`")
+        metadata_lines.append(f"- Status: `{status}`")
 
     if validation_status:
-        lines.append(f"- Validation Status: `{validation_status}`")
+        metadata_lines.append(f"- Validation Status: `{validation_status}`")
 
     if validation_reason:
-        lines.append(f"- Validation Reason: {validation_reason}")
+        metadata_lines.append(f"- Validation Reason: {validation_reason}")
+
+    if model_name:
+        metadata_lines.append(f"- Model: `{model_name}`")
 
     if session_id:
-        lines.append(f"- Session ID: `{session_id}`")
+        metadata_lines.append(f"- Session ID: `{session_id}`")
 
-    if not lines:
+    if not metadata_lines:
         return ""
 
-    return "## Response Metadata\n" + "\n".join(lines)
+    return "## Response Metadata\n" + "\n".join(metadata_lines)
 
 
-def _format_citations(citations: list[dict[str, Any]]) -> str:
-    """
-    Format citations returned by backend.
-    """
+def _format_citations(response: dict) -> str:
+    citations = response.get("citations") or []
+
     if not citations:
-        return "## Sources\nNo citations returned."
+        return ""
 
     lines = ["## Sources"]
 
     for index, citation in enumerate(citations, start=1):
-        document_name = (
-            citation.get("document_name")
-            or citation.get("original_file_name")
-            or "Unknown document"
-        )
+        document_name = citation.get("document_name") or "Unknown document"
         category = citation.get("category") or "N/A"
         page_number = citation.get("page_number")
-        section_title = citation.get("section_title")
-        chunk_id = citation.get("chunk_id")
-        chunk_index = citation.get("chunk_index")
+        section_title = citation.get("section_title") or "N/A"
+        chunk_id = citation.get("chunk_id") or "N/A"
         reranker_score = citation.get("reranker_score")
         hybrid_score = citation.get("hybrid_score")
 
-        lines.append(f"\n### {index}. {document_name}")
+        page_display = page_number if page_number is not None else "N/A"
+
+        lines.append("")
+        lines.append(f"### {index}. {document_name}")
         lines.append(f"- Category: `{category}`")
-
-        if page_number is not None:
-            lines.append(f"- Page: `{page_number}`")
-        else:
-            lines.append("- Page: `N/A`")
-
-        if section_title:
-            lines.append(f"- Section: `{section_title}`")
-        else:
-            lines.append("- Section: `N/A`")
-
-        if chunk_id:
-            lines.append(f"- Chunk ID: `{chunk_id}`")
-
-        if chunk_index is not None:
-            lines.append(f"- Chunk Index: `{chunk_index}`")
+        lines.append(f"- Page: `{page_display}`")
+        lines.append(f"- Section: `{section_title}`")
+        lines.append(f"- Chunk ID: `{chunk_id}`")
 
         if reranker_score is not None:
             lines.append(f"- Reranker Score: `{reranker_score}`")
@@ -435,21 +163,419 @@ def _format_citations(citations: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def _extract_document_id(payload: dict[str, Any]) -> str:
-    """
-    Extract document id from different possible backend response shapes.
-    """
-    if payload.get("id"):
-        return str(payload["id"])
+def _extract_document_id(response: dict) -> str | None:
+    possible_keys = [
+        "document_id",
+        "id",
+    ]
 
-    if payload.get("document_id"):
-        return str(payload["document_id"])
+    for key in possible_keys:
+        value = response.get(key)
+        if value:
+            return str(value)
 
-    document = payload.get("document")
+    document = response.get("document")
     if isinstance(document, dict):
-        if document.get("id"):
-            return str(document["id"])
-        if document.get("document_id"):
-            return str(document["document_id"])
+        value = document.get("document_id") or document.get("id")
+        if value:
+            return str(value)
 
-    return "unknown"
+    return None
+
+
+def _get_user_id() -> str:
+    return cl.user_session.get("user_id", DEFAULT_USER_ID)
+
+
+@cl.on_chat_start
+async def on_chat_start() -> None:
+    cl.user_session.set("user_id", DEFAULT_USER_ID)
+    cl.user_session.set("session_id", None)
+    cl.user_session.set("current_category", "general")
+
+    await cl.Message(
+        content=(
+            "Personal Policy RAG Assistant is ready.\n\n"
+            "Upload a document or type `/help` to see available commands."
+        )
+    ).send()
+
+
+async def handle_file_uploads(files: list) -> None:
+    user_id = _get_user_id()
+    category = cl.user_session.get("current_category", "general")
+
+    for file in files:
+        try:
+            response = await upload_document(
+                user_id=user_id,
+                file_path=file.path,
+                file_name=file.name,
+                category=category,
+            )
+
+            document_id = _extract_document_id(response)
+            status = response.get("status", "uploaded")
+
+            if not document_id:
+                await cl.Message(
+                    content=(
+                        "Document uploaded, but I could not find the document ID "
+                        "in the backend response. Type `/documents` to verify."
+                    )
+                ).send()
+                continue
+
+            await cl.Message(
+                content=(
+                    "Document uploaded successfully.\n\n"
+                    f"File: {file.name}\n"
+                    f"Document ID: {document_id}\n"
+                    f"Category: {category}\n"
+                    f"Status: {status}\n\n"
+                    "Next step:\n"
+                    f"Type `/process {document_id}` to prepare this document for questions.\n\n"
+                    "Other actions:\n"
+                    "- /documents\n"
+                    f"- /delete {document_id}\n"
+                    "- /category <category_name>"
+                )
+            ).send()
+
+        except APIClientError as exc:
+            await cl.Message(
+                content=f"Upload failed: {exc}"
+            ).send()
+        except Exception as exc:
+            await cl.Message(
+                content=f"Unexpected upload error: {exc}"
+            ).send()
+
+
+async def handle_documents_command() -> None:
+    user_id = _get_user_id()
+
+    try:
+        response = await list_documents(user_id=user_id)
+    except APIClientError as exc:
+        await cl.Message(content=f"Could not list documents: {exc}").send()
+        return
+
+    documents = response.get("documents") or []
+
+    visible_documents = [
+        document
+        for document in documents
+        if str(document.get("status", "")).lower() != "deleted"
+    ]
+
+    if not visible_documents:
+        await cl.Message(
+            content=(
+                "No active documents found.\n\n"
+                "Upload a document first, then type `/documents` again."
+            )
+        ).send()
+        return
+
+    lines = ["Documents:"]
+
+    for index, document in enumerate(visible_documents, start=1):
+        document_id = document.get("document_id") or document.get("id")
+        file_name = document.get("file_name") or document.get("filename") or "Unknown file"
+        category = document.get("category") or "general"
+        status = document.get("status") or "unknown"
+
+        readiness, action = _document_readiness_label(status)
+
+        if action.startswith("type /process") and document_id:
+            action = f"/process {document_id}"
+
+        if action.startswith("type /reprocess") and document_id:
+            action = f"/reprocess {document_id}"
+
+        lines.append("")
+        lines.append(f"{index}. {file_name}")
+        lines.append(f"   ID: {document_id}")
+        lines.append(f"   Category: {category}")
+        lines.append(f"   Status: {status}")
+        lines.append(f"   Readiness: {readiness}")
+        lines.append(f"   Action: {action}")
+
+    await cl.Message(content="\n".join(lines)).send()
+
+
+async def handle_process_command(message_text: str) -> None:
+    user_id = _get_user_id()
+    parts = message_text.strip().split(maxsplit=1)
+
+    if len(parts) < 2 or not parts[1].strip():
+        await cl.Message(content="Usage: /process <document_id>").send()
+        return
+
+    document_id = parts[1].strip()
+
+    try:
+        response = await process_document(
+            user_id=user_id,
+            document_id=document_id,
+            force=False,
+        )
+    except APIClientError as exc:
+        await cl.Message(content=f"Processing failed: {exc}").send()
+        return
+
+    steps_text = _format_processing_steps(response)
+    final_status = response.get("status", "unknown")
+    message = response.get("message", "")
+
+    content = (
+        f"Processing result for document `{document_id}`:\n\n"
+        f"{steps_text}\n\n"
+        f"Final status: `{final_status}`\n"
+        f"Message: {message}"
+    )
+
+    if final_status == "embedded":
+        content += "\n\nDocument is ready for questions."
+
+    await cl.Message(content=content).send()
+
+
+async def handle_reprocess_command(message_text: str) -> None:
+    user_id = _get_user_id()
+    parts = message_text.strip().split(maxsplit=1)
+
+    if len(parts) < 2 or not parts[1].strip():
+        await cl.Message(content="Usage: /reprocess <document_id>").send()
+        return
+
+    document_id = parts[1].strip()
+
+    await cl.Message(
+        content=(
+            "Reprocessing reruns extract → chunk → embed.\n\n"
+            f"Document ID: `{document_id}`"
+        )
+    ).send()
+
+    try:
+        response = await process_document(
+            user_id=user_id,
+            document_id=document_id,
+            force=True,
+        )
+    except APIClientError as exc:
+        await cl.Message(content=f"Reprocessing failed: {exc}").send()
+        return
+
+    steps_text = _format_processing_steps(response)
+    final_status = response.get("status", "unknown")
+    message = response.get("message", "")
+
+    content = (
+        f"Reprocessing result for document `{document_id}`:\n\n"
+        f"{steps_text}\n\n"
+        f"Final status: `{final_status}`\n"
+        f"Message: {message}"
+    )
+
+    if final_status == "embedded":
+        content += "\n\nDocument is ready for questions."
+
+    await cl.Message(content=content).send()
+
+
+async def handle_delete_command(message_text: str) -> None:
+    user_id = _get_user_id()
+    parts = message_text.strip().split(maxsplit=1)
+
+    if len(parts) < 2 or not parts[1].strip():
+        await cl.Message(content="Usage: /delete <document_id>").send()
+        return
+
+    document_id = parts[1].strip()
+
+    await cl.Message(
+        content=(
+            "This soft-deletes the document and removes it from normal search results.\n\n"
+            f"Document ID: `{document_id}`"
+        )
+    ).send()
+
+    try:
+        response = await delete_document(
+            user_id=user_id,
+            document_id=document_id,
+        )
+    except APIClientError as exc:
+        await cl.Message(content=f"Delete failed: {exc}").send()
+        return
+
+    message = response.get("message", "Document deleted.")
+    status = response.get("status", "deleted")
+
+    await cl.Message(
+        content=(
+            f"{message}\n\n"
+            f"Status: `{status}`\n\n"
+            "Type `/documents` to verify."
+        )
+    ).send()
+
+
+async def handle_categories_command() -> None:
+    lines = ["Supported categories:"]
+
+    for category in SUPPORTED_CATEGORIES:
+        lines.append(f"- {category}")
+
+    current_category = cl.user_session.get("current_category", "general")
+
+    lines.append("")
+    lines.append(f"Current upload category: `{current_category}`")
+    lines.append("")
+    lines.append("To change it, type `/category <category_name>`.")
+
+    await cl.Message(content="\n".join(lines)).send()
+
+
+async def handle_category_command(message_text: str) -> None:
+    parts = message_text.strip().split(maxsplit=1)
+
+    if len(parts) < 2 or not parts[1].strip():
+        await cl.Message(
+            content=(
+                "Usage: /category <category_name>\n\n"
+                "Type `/categories` to see supported categories."
+            )
+        ).send()
+        return
+
+    category = parts[1].strip()
+
+    if category not in SUPPORTED_CATEGORIES:
+        supported = "\n".join(f"- {item}" for item in SUPPORTED_CATEGORIES)
+
+        await cl.Message(
+            content=(
+                f"Unsupported category: `{category}`\n\n"
+                "Supported categories:\n"
+                f"{supported}"
+            )
+        ).send()
+        return
+
+    cl.user_session.set("current_category", category)
+
+    await cl.Message(
+        content=f"Current upload category set to: `{category}`"
+    ).send()
+
+
+async def handle_help_command() -> None:
+    await cl.Message(
+        content=(
+            "Available commands:\n"
+            "- /documents — list uploaded documents\n"
+            "- /process <document_id> — extract, chunk, and embed a document\n"
+            "- /reprocess <document_id> — force reprocess a document\n"
+            "- /delete <document_id> — soft delete a document\n"
+            "- /category <category_name> — set upload category\n"
+            "- /categories — show supported categories\n"
+            "- /new — start a new chat session\n"
+            "- /help — show help"
+        )
+    ).send()
+
+
+async def handle_new_command() -> None:
+    cl.user_session.set("session_id", None)
+
+    await cl.Message(
+        content="Started a new chat session. Ask your next question when ready."
+    ).send()
+
+
+async def handle_question(message_text: str) -> None:
+    user_id = _get_user_id()
+    session_id = cl.user_session.get("session_id")
+
+    try:
+        response = await ask_question(
+            user_id=user_id,
+            question=message_text,
+            session_id=session_id,
+        )
+    except APIClientError as exc:
+        await cl.Message(content=f"Question failed: {exc}").send()
+        return
+
+    returned_session_id = response.get("session_id")
+    if returned_session_id:
+        cl.user_session.set("session_id", returned_session_id)
+
+    answer = response.get("answer") or response.get("final_answer") or "No answer returned."
+    metadata = _format_response_metadata(response)
+    citations = _format_citations(response)
+
+    sections = [answer]
+
+    if metadata:
+        sections.append(metadata)
+
+    if citations:
+        sections.append(citations)
+
+    await cl.Message(content="\n\n".join(sections)).send()
+
+
+@cl.on_message
+async def main(message: cl.Message) -> None:
+    message_text = (message.content or "").strip()
+
+    if message.elements:
+        files = [
+            element
+            for element in message.elements
+            if getattr(element, "path", None)
+        ]
+
+        if files:
+            await handle_file_uploads(files)
+            return
+
+    if not message_text:
+        await cl.Message(
+            content="Type `/help` to see available commands."
+        ).send()
+        return
+
+    normalized = message_text.lower()
+
+    if normalized.startswith("/documents"):
+        await handle_documents_command()
+
+    elif normalized.startswith("/process"):
+        await handle_process_command(message_text)
+
+    elif normalized.startswith("/reprocess"):
+        await handle_reprocess_command(message_text)
+
+    elif normalized.startswith("/delete"):
+        await handle_delete_command(message_text)
+
+    elif normalized.startswith("/categories"):
+        await handle_categories_command()
+
+    elif normalized.startswith("/category"):
+        await handle_category_command(message_text)
+
+    elif normalized.startswith("/help"):
+        await handle_help_command()
+
+    elif normalized.startswith("/new"):
+        await handle_new_command()
+
+    else:
+        await handle_question(message_text)
