@@ -25,6 +25,10 @@ openai = "*"
 pyyaml = "*"
 langgraph = "*"
 asyncpg = "*"
+passlib = {extras = ["bcrypt"], version = "*"}
+python-jose = {extras = ["cryptography"], version = "*"}
+email-validator = "*"
+bcrypt = "<5.0.0"
 
 [dev-packages]
 pytest = "*"
