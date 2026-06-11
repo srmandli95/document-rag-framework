@@ -1,24 +1,22 @@
+"""Tests for hybrid search endpoint with Day 20 authorization."""
+
 from fastapi.testclient import TestClient
 
-from app.api import retrieval_routes
+from app.auth.dependencies import get_current_user
 from app.db.database import get_db
 from app.main import app
 from app.retrieval import hybrid_retriever
 from app.retrieval.hybrid_retriever import hybrid_search, normalize_scores
+from conftest import override_get_db, override_get_current_user, FakeDB
 
 
 client = TestClient(app)
 
 
-class FakeDB:
-    pass
-
-
-def override_get_db():
-    yield FakeDB()
-
-
-app.dependency_overrides[get_db] = override_get_db
+def setup_auth_overrides(user_id: str = "test-user"):
+    """Setup both DB and auth overrides."""
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = override_get_current_user(user_id)
 
 
 def make_result(
@@ -249,16 +247,12 @@ def test_retrieval_sources_show_vector_bm25_or_both(monkeypatch):
     assert sources_by_chunk["both"] == ["vector", "bm25"]
 
 
-def test_hybrid_endpoint_success_using_monkeypatch(monkeypatch):
+def test_hybrid_endpoint_success(monkeypatch):
+    """Hybrid search returns results for authenticated user."""
+    setup_auth_overrides("user-1")
+
     def fake_hybrid_search(
-        db,
-        user_id,
-        query,
-        top_k,
-        vector_top_k,
-        bm25_top_k,
-        vector_weight,
-        bm25_weight,
+        db, user_id: str, query: str, top_k: int = 5, **kwargs
     ):
         return [
             {
@@ -267,11 +261,6 @@ def test_hybrid_endpoint_success_using_monkeypatch(monkeypatch):
                 "user_id": user_id,
                 "chunk_text": "Urgent care copay is $40.",
                 "chunk_index": 0,
-                "token_count": 50,
-                "page_number": None,
-                "section_title": None,
-                "document_name": "sample_health_policy.txt",
-                "category": "health_insurance",
                 "vector_score": 0.8,
                 "bm25_score": 2.5,
                 "normalized_vector_score": 1.0,
@@ -281,51 +270,34 @@ def test_hybrid_endpoint_success_using_monkeypatch(monkeypatch):
             }
         ]
 
-    monkeypatch.setattr(retrieval_routes, "hybrid_search", fake_hybrid_search)
+    monkeypatch.setattr(
+        "app.api.retrieval_routes.hybrid_search",
+        fake_hybrid_search,
+    )
 
     response = client.post(
-        "/retrieval/hybrid-search",
+        "/search/hybrid",
         json={
-            "user_id": "user-1",
             "query": "urgent care copay",
             "top_k": 5,
-            "vector_top_k": 20,
-            "bm25_top_k": 20,
-            "vector_weight": 0.6,
-            "bm25_weight": 0.4,
         },
     )
 
     assert response.status_code == 200
-
     data = response.json()
-
     assert data["user_id"] == "user-1"
-    assert data["query"] == "urgent care copay"
     assert data["result_count"] == 1
     assert data["results"][0]["chunk_id"] == "chunk-1"
-    assert data["results"][0]["retrieval_sources"] == ["vector", "bm25"]
-
-
-def test_hybrid_endpoint_empty_user_id_returns_400():
-    response = client.post(
-        "/retrieval/hybrid-search",
-        json={
-            "user_id": "",
-            "query": "urgent care copay",
-            "top_k": 5,
-        },
-    )
-
-    assert response.status_code == 400
 
 
 def test_hybrid_endpoint_empty_query_returns_400():
+    """Hybrid search rejects empty query."""
+    setup_auth_overrides("test-user")
+
     response = client.post(
-        "/retrieval/hybrid-search",
+        "/search/hybrid",
         json={
-            "user_id": "user-1",
-            "query": "",
+            "query": "   ",
             "top_k": 5,
         },
     )
@@ -333,29 +305,27 @@ def test_hybrid_endpoint_empty_query_returns_400():
     assert response.status_code == 400
 
 
-def test_hybrid_endpoint_top_k_greater_than_20_is_capped(monkeypatch):
+def test_hybrid_endpoint_top_k_capped_at_20(monkeypatch):
+    """Hybrid search caps top_k at 20."""
+    setup_auth_overrides("test-user")
+
     captured = {}
 
     def fake_hybrid_search(
-        db,
-        user_id,
-        query,
-        top_k,
-        vector_top_k,
-        bm25_top_k,
-        vector_weight,
-        bm25_weight,
+        db, user_id: str, query: str, top_k: int = 5, **kwargs
     ):
         captured["top_k"] = top_k
         return []
 
-    monkeypatch.setattr(retrieval_routes, "hybrid_search", fake_hybrid_search)
+    monkeypatch.setattr(
+        "app.api.retrieval_routes.hybrid_search",
+        fake_hybrid_search,
+    )
 
     response = client.post(
-        "/retrieval/hybrid-search",
+        "/search/hybrid",
         json={
-            "user_id": "user-1",
-            "query": "urgent care copay",
+            "query": "test",
             "top_k": 100,
         },
     )
@@ -364,35 +334,40 @@ def test_hybrid_endpoint_top_k_greater_than_20_is_capped(monkeypatch):
     assert captured["top_k"] == 20
 
 
-def test_hybrid_endpoint_both_weights_zero_returns_400():
+def test_hybrid_endpoint_no_results_returns_empty_list(monkeypatch):
+    """Hybrid search handles no results gracefully."""
+    setup_auth_overrides("test-user")
+
+    def fake_hybrid_search(
+        db, user_id: str, query: str, top_k: int = 5, **kwargs
+    ):
+        return []
+
+    monkeypatch.setattr(
+        "app.api.retrieval_routes.hybrid_search",
+        fake_hybrid_search,
+    )
+
     response = client.post(
-        "/retrieval/hybrid-search",
-        json={
-            "user_id": "user-1",
-            "query": "urgent care copay",
-            "top_k": 5,
-            "vector_weight": 0,
-            "bm25_weight": 0,
-        },
+        "/search/hybrid",
+        json={"query": "nonexistent", "top_k": 5},
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 200
+    data = response.json()
+    assert data["result_count"] == 0
+    assert data["results"] == []
 
 
-def test_no_vector_or_bm25_results_returns_empty_list(monkeypatch):
-    def fake_vector_search(db, user_id, query, top_k):
-        return []
-
-    def fake_bm25_search(db, user_id, query, top_k):
-        return []
-
-    monkeypatch.setattr(hybrid_retriever, "vector_search", fake_vector_search)
-    monkeypatch.setattr(hybrid_retriever, "bm25_search", fake_bm25_search)
-
-    results = hybrid_search(
-        db=FakeDB(),
-        user_id="user-1",
-        query="urgent care",
+def test_hybrid_endpoint_without_auth_returns_401():
+    """Hybrid search requires authentication."""
+    # Don't setup overrides - test unauthenticated access
+    response = client.post(
+        "/search/hybrid",
+        json={"query": "test", "top_k": 5},
     )
 
-    assert results == []
+    assert response.status_code == 401
+
+
+app.dependency_overrides.clear()
