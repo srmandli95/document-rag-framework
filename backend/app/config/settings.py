@@ -48,6 +48,9 @@ class Settings(BaseSettings):
 
     MAX_UPLOAD_SIZE_MB: int = 250
 
+    DEV_AUTH_DISABLED: bool = False
+    DEV_AUTH_USER_ID: str = "local-user-123"
+
     LLM_PROVIDER: str = "openai"
     OPENAI_API_KEY: str | None = None
 
