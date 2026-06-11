@@ -4,6 +4,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api import document_routes
+from app.auth.dependencies import get_current_user
+from conftest import override_get_current_user
 from app.ingestion.document_processing_service import process_document
 
 
@@ -412,6 +414,9 @@ def _make_test_client(monkeypatch, fake_document):
         }
 
     app.dependency_overrides[document_routes.get_db] = fake_get_db
+    app.dependency_overrides[get_current_user] = override_get_current_user(
+        "local-user-123"
+    )
 
     monkeypatch.setattr(
         document_routes,
@@ -436,7 +441,7 @@ def test_process_endpoint_returns_404_for_invalid_document_id(monkeypatch):
     )
 
     assert response.status_code == 404
-    assert response.json()["detail"] == "Document not found."
+    assert response.json()["detail"] == "Document not found"
 
 
 def test_process_endpoint_returns_404_when_user_does_not_own_document(monkeypatch):
@@ -448,7 +453,7 @@ def test_process_endpoint_returns_404_when_user_does_not_own_document(monkeypatc
     )
 
     assert response.status_code == 404
-    assert response.json()["detail"] == "Document not found."
+    assert response.json()["detail"] == "Document not found"
 
 
 def test_process_endpoint_returns_already_processed_message(monkeypatch):
@@ -521,6 +526,9 @@ def test_process_endpoint_defaults_force_false(monkeypatch):
         }
 
     app.dependency_overrides[document_routes.get_db] = fake_get_db
+    app.dependency_overrides[get_current_user] = override_get_current_user(
+        "local-user-123"
+    )
 
     monkeypatch.setattr(
         document_routes,
@@ -574,6 +582,9 @@ def test_process_endpoint_passes_force_true(monkeypatch):
         }
 
     app.dependency_overrides[document_routes.get_db] = fake_get_db
+    app.dependency_overrides[get_current_user] = override_get_current_user(
+        "local-user-123"
+    )
 
     monkeypatch.setattr(
         document_routes,
@@ -610,4 +621,4 @@ def test_process_endpoint_returns_404_for_deleted_document(monkeypatch):
     )
 
     assert response.status_code == 404
-    assert response.json()["detail"] == "Document not found."
+    assert response.json()["detail"] == "Document not found"

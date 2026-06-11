@@ -457,7 +457,7 @@ def test_get_chat_sessions_route(monkeypatch):
     assert data["sessions"][0]["title"] == "Session 1"
 
 
-def test_get_chat_sessions_route_requires_user_id():
+def test_get_chat_sessions_route_requires_authentication():
     app.dependency_overrides[get_async_db] = override_async_db()
 
     client = TestClient(app)
@@ -465,7 +465,7 @@ def test_get_chat_sessions_route_requires_user_id():
 
     app.dependency_overrides.clear()
 
-    assert response.status_code == 422
+    assert response.status_code == 401
 
 
 def test_get_chat_session_detail_route_returns_messages(monkeypatch):
@@ -777,7 +777,7 @@ def test_chat_ask_returns_404_for_invalid_session_id(monkeypatch):
     assert response.status_code == 404
 
 
-def test_chat_ask_returns_400_when_user_id_missing():
+def test_chat_ask_returns_401_when_user_identity_missing():
     app.dependency_overrides[get_async_db] = override_async_db()
     app.dependency_overrides[get_db] = override_sync_db()
 
@@ -793,7 +793,7 @@ def test_chat_ask_returns_400_when_user_id_missing():
 
     app.dependency_overrides.clear()
 
-    assert response.status_code == 400
+    assert response.status_code == 401
 
 
 def test_chat_ask_returns_400_when_question_missing():

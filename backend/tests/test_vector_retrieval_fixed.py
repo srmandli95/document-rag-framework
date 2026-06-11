@@ -39,6 +39,7 @@ def test_vector_search_endpoint_success(monkeypatch):
             }
         ]
 
+    # Patch where the function is USED (imported), not where it's defined
     monkeypatch.setattr(
         "app.api.retrieval_routes.vector_search",
         fake_vector_search,
@@ -90,7 +91,7 @@ def test_vector_search_endpoint_empty_query_returns_400(monkeypatch):
     assert response.json()["detail"] == "query is required"
 
 
-def test_vector_search_endpoint_missing_query_returns_422(monkeypatch):
+def test_vector_search_endpoint_missing_query_returns_422():
     """Vector search requires query in request."""
     setup_auth_overrides("test-user")
 
@@ -201,3 +202,6 @@ def test_vector_search_endpoint_without_auth_returns_401():
     )
 
     assert response.status_code == 401
+
+
+app.dependency_overrides.clear()

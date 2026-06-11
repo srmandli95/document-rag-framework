@@ -1,43 +1,21 @@
+"""Tests for BM25 search endpoint with Day 20 authorization."""
+
 from fastapi.testclient import TestClient
 
+from app.auth.dependencies import get_current_user
 from app.db.database import get_db
 from app.main import app
 from app.retrieval.bm25_retriever import bm25_search, tokenize_text
+from conftest import FakeDB, FakeUser, override_get_db, override_get_current_user
 
 
 client = TestClient(app)
 
 
-class FakeDB:
-    pass
-
-
-class FakeChunk:
-    def __init__(
-        self,
-        id,
-        document_id,
-        user_id,
-        chunk_text,
-        chunk_index,
-        token_count=None,
-        page_number=None,
-        section_title=None,
-        status="embedded",
-    ):
-        self.id = id
-        self.document_id = document_id
-        self.user_id = user_id
-        self.chunk_text = chunk_text
-        self.chunk_index = chunk_index
-        self.token_count = token_count
-        self.page_number = page_number
-        self.section_title = section_title
-        self.status = status
-
-
-def override_get_db():
-    return FakeDB()
+def setup_auth_overrides(user_id: str = "test-user"):
+    """Setup both DB and auth overrides."""
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = override_get_current_user(user_id)
 
 
 def test_bm25_tokenizer_lowercases_text():
@@ -52,27 +30,21 @@ def test_bm25_tokenizer_handles_punctuation():
     assert tokens == ["urgent", "care", "copay"]
 
 
-def test_bm25_endpoint_success_using_monkeypatch(monkeypatch):
-    app.dependency_overrides[get_db] = override_get_db
+def test_bm25_endpoint_success(monkeypatch):
+    """BM25 search returns results for authenticated user."""
+    setup_auth_overrides("local-user-123")
 
-    fake_results = [
-        {
-            "chunk_id": "chunk-1",
-            "document_id": "doc-1",
-            "user_id": "local-user-123",
-            "chunk_text": "Urgent care copay is 50 dollars.",
-            "chunk_index": 0,
-            "token_count": 6,
-            "page_number": None,
-            "section_title": None,
-            "document_name": "sample_health_policy.txt",
-            "category": "health_insurance",
-            "bm25_score": 1.25,
-        }
-    ]
-
-    def fake_bm25_search(db, user_id, query, top_k=5):
-        return fake_results
+    def fake_bm25_search(db, user_id: str, query: str, top_k: int = 5):
+        return [
+            {
+                "chunk_id": "chunk-1",
+                "document_id": "doc-1",
+                "user_id": user_id,
+                "chunk_text": "Urgent care visits are covered after copay.",
+                "chunk_index": 0,
+                "bm25_score": 15.5,
+            }
+        ]
 
     monkeypatch.setattr(
         "app.api.retrieval_routes.bm25_search",
@@ -80,59 +52,35 @@ def test_bm25_endpoint_success_using_monkeypatch(monkeypatch):
     )
 
     response = client.post(
-        "/retrieval/bm25-search",
+        "/search/bm25",
         json={
-            "user_id": "local-user-123",
-            "query": "urgent care copay",
+            "query": "urgent care coverage",
             "top_k": 5,
         },
     )
-
-    app.dependency_overrides.clear()
 
     assert response.status_code == 200
-
     data = response.json()
-
     assert data["user_id"] == "local-user-123"
-    assert data["query"] == "urgent care copay"
-    assert data["top_k"] == 5
     assert data["result_count"] == 1
-    assert data["results"][0]["chunk_id"] == "chunk-1"
-    assert data["results"][0]["bm25_score"] == 1.25
+    assert data["results"][0]["bm25_score"] == 15.5
 
 
-def test_bm25_endpoint_empty_user_id_returns_400():
-    response = client.post(
-        "/retrieval/bm25-search",
-        json={
-            "user_id": "   ",
-            "query": "urgent care copay",
-            "top_k": 5,
-        },
+def test_bm25_endpoint_empty_query_returns_400(monkeypatch):
+    """BM25 search rejects empty query."""
+    setup_auth_overrides("test-user")
+
+    def fake_bm25_search(db, user_id: str, query: str, top_k: int = 5):
+        return []
+
+    monkeypatch.setattr(
+        "app.api.retrieval_routes.bm25_search",
+        fake_bm25_search,
     )
 
-    assert response.status_code == 400
-    assert response.json()["detail"] == "user_id is required"
-
-
-def test_bm25_endpoint_missing_user_id_returns_422():
     response = client.post(
-        "/retrieval/bm25-search",
+        "/search/bm25",
         json={
-            "query": "urgent care copay",
-            "top_k": 5,
-        },
-    )
-
-    assert response.status_code == 422
-
-
-def test_bm25_endpoint_empty_query_returns_400():
-    response = client.post(
-        "/retrieval/bm25-search",
-        json={
-            "user_id": "local-user-123",
             "query": "   ",
             "top_k": 5,
         },
@@ -143,92 +91,107 @@ def test_bm25_endpoint_empty_query_returns_400():
 
 
 def test_bm25_endpoint_missing_query_returns_422():
+    """BM25 search requires query in request."""
+    setup_auth_overrides("test-user")
+
     response = client.post(
-        "/retrieval/bm25-search",
-        json={
-            "user_id": "local-user-123",
-            "top_k": 5,
-        },
+        "/search/bm25",
+        json={"top_k": 5},
     )
 
     assert response.status_code == 422
 
 
-def test_bm25_endpoint_top_k_greater_than_20_returns_422():
+def test_bm25_endpoint_rejects_top_k_greater_than_20(monkeypatch):
+    """BM25 request validation rejects top_k values greater than 20."""
+    setup_auth_overrides("test-user")
+
+    captured_args = {}
+
+    def fake_bm25_search(db, user_id: str, query: str, top_k: int = 5):
+        captured_args["top_k"] = top_k
+        return []
+
+    monkeypatch.setattr(
+        "app.api.retrieval_routes.bm25_search",
+        fake_bm25_search,
+    )
+
     response = client.post(
-        "/retrieval/bm25-search",
+        "/search/bm25",
         json={
-            "user_id": "local-user-123",
-            "query": "urgent care copay",
-            "top_k": 25,
+            "query": "test",
+            "top_k": 100,
         },
     )
 
     assert response.status_code == 422
+    assert "top_k" not in captured_args
 
 
-def test_bm25_search_no_chunks_returns_empty_list(monkeypatch):
-    class FakeQuery:
-        def join(self, *args, **kwargs):
-            return self
+def test_bm25_endpoint_no_results_returns_empty_list(monkeypatch):
+    """BM25 search handles no results gracefully."""
+    setup_auth_overrides("test-user")
 
-        def filter(self, *args, **kwargs):
-            return self
+    def fake_bm25_search(db, user_id: str, query: str, top_k: int = 5):
+        return []
 
-        def all(self):
-            return []
-
-    class FakeDBWithNoRows:
-        def query(self, *args, **kwargs):
-            return FakeQuery()
-
-    results = bm25_search(
-        db=FakeDBWithNoRows(),
-        user_id="local-user-123",
-        query="urgent care copay",
-        top_k=5,
+    monkeypatch.setattr(
+        "app.api.retrieval_routes.bm25_search",
+        fake_bm25_search,
     )
 
-    assert results == []
-
-
-def test_bm25_search_result_contains_bm25_score(monkeypatch):
-    fake_result = [
-        {
-            "chunk_id": "chunk-1",
-            "document_id": "doc-1",
-            "user_id": "local-user-123",
-            "chunk_text": "Urgent care copay is 50 dollars.",
-            "chunk_index": 0,
-            "token_count": 6,
-            "page_number": None,
-            "section_title": None,
-            "document_name": "sample_health_policy.txt",
-            "category": "health_insurance",
-            "bm25_score": 1.5,
-        }
-    ]
-
-    def fake_bm25_search(db, user_id, query, top_k=5):
-        return fake_result
-
-    results = fake_bm25_search(
-        db=FakeDB(),
-        user_id="local-user-123",
-        query="urgent care copay",
-        top_k=5,
+    response = client.post(
+        "/search/bm25",
+        json={"query": "nonexistent", "top_k": 5},
     )
 
-    assert "bm25_score" in results[0]
-    assert isinstance(results[0]["bm25_score"], float)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["result_count"] == 0
+    assert data["results"] == []
 
 
-def test_only_user_scoped_chunks_are_searched_using_route_monkeypatch(monkeypatch):
-    app.dependency_overrides[get_db] = override_get_db
+def test_bm25_endpoint_result_count_correct(monkeypatch):
+    """BM25 search returns correct result count."""
+    setup_auth_overrides("test-user")
+
+    def fake_bm25_search(db, user_id: str, query: str, top_k: int = 5):
+        return [
+            {
+                "chunk_id": f"chunk-{i}",
+                "document_id": "doc-1",
+                "user_id": user_id,
+                "chunk_text": f"Result {i}",
+                "chunk_index": i,
+                "bm25_score": 10.0 - i,
+            }
+            for i in range(3)
+        ]
+
+    monkeypatch.setattr(
+        "app.api.retrieval_routes.bm25_search",
+        fake_bm25_search,
+    )
+
+    response = client.post(
+        "/search/bm25",
+        json={"query": "test", "top_k": 5},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["result_count"] == 3
+    assert len(data["results"]) == 3
+
+
+def test_bm25_endpoint_user_scoped_search(monkeypatch):
+    """BM25 search only returns user's chunks."""
+    setup_auth_overrides("user-a")
 
     captured_user_id = {}
 
-    def fake_bm25_search(db, user_id, query, top_k=5):
+    def fake_bm25_search(db, user_id: str, query: str, top_k: int = 5):
         captured_user_id["value"] = user_id
         return []
 
@@ -238,72 +201,23 @@ def test_only_user_scoped_chunks_are_searched_using_route_monkeypatch(monkeypatc
     )
 
     response = client.post(
-        "/retrieval/bm25-search",
-        json={
-            "user_id": "user-a",
-            "query": "copay",
-            "top_k": 5,
-        },
+        "/search/bm25",
+        json={"query": "copay", "top_k": 5},
     )
-
-    app.dependency_overrides.clear()
 
     assert response.status_code == 200
     assert captured_user_id["value"] == "user-a"
-    assert response.json()["results"] == []
-    assert response.json()["result_count"] == 0
 
 
-def test_bm25_endpoint_result_count_correct_using_monkeypatch(monkeypatch):
-    app.dependency_overrides[get_db] = override_get_db
-
-    fake_results = [
-        {
-            "chunk_id": "chunk-1",
-            "document_id": "doc-1",
-            "user_id": "local-user-123",
-            "chunk_text": "Urgent care copay is 50 dollars.",
-            "chunk_index": 0,
-            "token_count": 6,
-            "page_number": None,
-            "section_title": None,
-            "document_name": "sample_health_policy.txt",
-            "category": "health_insurance",
-            "bm25_score": 1.25,
-        },
-        {
-            "chunk_id": "chunk-2",
-            "document_id": "doc-1",
-            "user_id": "local-user-123",
-            "chunk_text": "Primary care visit copay is 25 dollars.",
-            "chunk_index": 1,
-            "token_count": 7,
-            "page_number": None,
-            "section_title": None,
-            "document_name": "sample_health_policy.txt",
-            "category": "health_insurance",
-            "bm25_score": 0.75,
-        },
-    ]
-
-    def fake_bm25_search(db, user_id, query, top_k=5):
-        return fake_results
-
-    monkeypatch.setattr(
-        "app.api.retrieval_routes.bm25_search",
-        fake_bm25_search,
-    )
-
+def test_bm25_endpoint_without_auth_returns_401():
+    """BM25 search requires authentication."""
+    # Don't setup overrides - test unauthenticated access
     response = client.post(
-        "/retrieval/bm25-search",
-        json={
-            "user_id": "local-user-123",
-            "query": "copay",
-            "top_k": 5,
-        },
+        "/search/bm25",
+        json={"query": "test", "top_k": 5},
     )
 
-    app.dependency_overrides.clear()
+    assert response.status_code == 401
 
-    assert response.status_code == 200
-    assert response.json()["result_count"] == 2
+
+app.dependency_overrides.clear()

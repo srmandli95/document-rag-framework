@@ -13,7 +13,6 @@ from services.api_client import (
 )
 
 
-DEFAULT_USER_ID = "local-user-123"
 DEFAULT_CATEGORY = "general"
 
 
@@ -34,29 +33,57 @@ SUPPORTED_CATEGORIES = [
 ]
 
 
+LOGIN_REQUIRED_MESSAGE = (
+    "Please login first using `/login <email> <password>` "
+    "or register using `/register <email> <password> [full name]`."
+)
+
+
 def _get_access_token() -> str | None:
     return cl.user_session.get("access_token")
 
 
-def _get_user_id() -> str:
-    return cl.user_session.get("user_id", DEFAULT_USER_ID)
-
-
 def _get_current_category() -> str:
-    return cl.user_session.get("current_category", DEFAULT_CATEGORY)
+    return cl.user_session.get("current_category") or DEFAULT_CATEGORY
 
 
 def _store_auth_session(auth_response: dict) -> None:
-    access_token = auth_response["access_token"]
-    user = auth_response["user"]
+    access_token = auth_response.get("access_token")
+    user = auth_response.get("user")
+
+    if not access_token:
+        raise APIClientError("Auth response did not include access_token")
+
+    if not isinstance(user, dict):
+        raise APIClientError("Auth response did not include user")
 
     cl.user_session.set("access_token", access_token)
-    cl.user_session.set("user_id", user["id"])
-    cl.user_session.set("email", user["email"])
-    cl.user_session.set("auth_provider", user["auth_provider"])
+    cl.user_session.set("current_user", user)
+    cl.user_session.set("user_id", user.get("id"))
+    cl.user_session.set("email", user.get("email"))
+    cl.user_session.set("auth_provider", user.get("auth_provider"))
 
     # New authenticated user context should start a new chat session.
     cl.user_session.set("session_id", None)
+
+
+def _clear_auth_session() -> None:
+    cl.user_session.set("access_token", None)
+    cl.user_session.set("current_user", None)
+    cl.user_session.set("user_id", None)
+    cl.user_session.set("email", None)
+    cl.user_session.set("auth_provider", None)
+    cl.user_session.set("session_id", None)
+
+
+async def _require_login() -> bool:
+    access_token = _get_access_token()
+
+    if access_token:
+        return True
+
+    await cl.Message(content=LOGIN_REQUIRED_MESSAGE).send()
+    return False
 
 
 def _format_processing_steps(response: dict) -> str:
@@ -203,9 +230,6 @@ def _extract_documents(response: dict | list) -> list[dict]:
 
 @cl.on_chat_start
 async def on_chat_start() -> None:
-    if cl.user_session.get("user_id") is None:
-        cl.user_session.set("user_id", DEFAULT_USER_ID)
-
     if cl.user_session.get("session_id") is None:
         cl.user_session.set("session_id", None)
 
@@ -215,24 +239,31 @@ async def on_chat_start() -> None:
     await cl.Message(
         content=(
             "Personal Policy RAG Assistant is ready.\n\n"
-            "The app is running in local development fallback mode by default.\n\n"
-            f"- Current fallback user_id: `{DEFAULT_USER_ID}`\n"
-            "- Type `/register <email> <password> [full name]` to create a local dev account.\n"
-            "- Type `/login <email> <password>` to use authenticated mode.\n"
-            "- Type `/help` to see all commands."
+            "Please login or register before uploading documents, processing documents, "
+            "listing documents, or asking questions.\n\n"
+            "Auth commands:\n"
+            "- `/register <email> <password> [full name]`\n"
+            "- `/login <email> <password>`\n"
+            "- `/me`\n"
+            "- `/logout`\n\n"
+            "Useful commands:\n"
+            "- `/help`\n"
+            "- `/categories`\n"
+            "- `/category <category_name>`"
         )
     ).send()
 
 
 async def handle_file_uploads(files: list) -> None:
-    user_id = _get_user_id()
+    if not await _require_login():
+        return
+
     category = _get_current_category()
     access_token = _get_access_token()
 
     for file in files:
         try:
             response = await upload_document(
-                user_id=user_id,
                 file_path=file.path,
                 file_name=file.name,
                 category=category,
@@ -274,11 +305,11 @@ async def handle_file_uploads(files: list) -> None:
 
 
 async def handle_documents_command() -> None:
-    user_id = _get_user_id()
+    if not await _require_login():
+        return
 
     try:
         response = await list_documents(
-            user_id=user_id,
             access_token=_get_access_token(),
         )
     except APIClientError as exc:
@@ -309,6 +340,7 @@ async def handle_documents_command() -> None:
         file_name = (
             document.get("file_name")
             or document.get("filename")
+            or document.get("original_file_name")
             or document.get("original_filename")
             or "Unknown file"
         )
@@ -335,9 +367,10 @@ async def handle_documents_command() -> None:
 
 
 async def handle_process_command(message_text: str, force: bool = False) -> None:
-    user_id = _get_user_id()
-    parts = message_text.strip().split(maxsplit=1)
+    if not await _require_login():
+        return
 
+    parts = message_text.strip().split(maxsplit=1)
     command_name = "/reprocess" if force else "/process"
 
     if len(parts) < 2 or not parts[1].strip():
@@ -356,7 +389,6 @@ async def handle_process_command(message_text: str, force: bool = False) -> None
 
     try:
         response = await process_document(
-            user_id=user_id,
             document_id=document_id,
             force=force,
             access_token=_get_access_token(),
@@ -386,7 +418,9 @@ async def handle_process_command(message_text: str, force: bool = False) -> None
 
 
 async def handle_delete_command(message_text: str) -> None:
-    user_id = _get_user_id()
+    if not await _require_login():
+        return
+
     parts = message_text.strip().split(maxsplit=1)
 
     if len(parts) < 2 or not parts[1].strip():
@@ -404,7 +438,6 @@ async def handle_delete_command(message_text: str) -> None:
 
     try:
         response = await delete_document(
-            user_id=user_id,
             document_id=document_id,
             access_token=_get_access_token(),
         )
@@ -501,16 +534,20 @@ async def handle_register_command(message_text: str) -> None:
         await cl.Message(content=f"Register failed: {exc}").send()
         return
 
-    _store_auth_session(auth_response)
+    try:
+        _store_auth_session(auth_response)
+    except APIClientError as exc:
+        await cl.Message(content=f"Register succeeded but session setup failed: {exc}").send()
+        return
 
     user = auth_response["user"]
 
     await cl.Message(
         content=(
             "Registered and logged in.\n\n"
-            f"- User ID: `{user['id']}`\n"
-            f"- Email: `{user['email']}`\n"
-            f"- Auth provider: `{user['auth_provider']}`\n\n"
+            f"- User ID: `{user.get('id')}`\n"
+            f"- Email: `{user.get('email')}`\n"
+            f"- Auth provider: `{user.get('auth_provider')}`\n\n"
             "A new chat session will start for this authenticated user."
         )
     ).send()
@@ -542,16 +579,20 @@ async def handle_login_command(message_text: str) -> None:
         await cl.Message(content=f"Login failed: {exc}").send()
         return
 
-    _store_auth_session(auth_response)
+    try:
+        _store_auth_session(auth_response)
+    except APIClientError as exc:
+        await cl.Message(content=f"Login succeeded but session setup failed: {exc}").send()
+        return
 
     user = auth_response["user"]
 
     await cl.Message(
         content=(
             "Logged in.\n\n"
-            f"- User ID: `{user['id']}`\n"
-            f"- Email: `{user['email']}`\n"
-            f"- Auth provider: `{user['auth_provider']}`\n\n"
+            f"- User ID: `{user.get('id')}`\n"
+            f"- Email: `{user.get('email')}`\n"
+            f"- Auth provider: `{user.get('auth_provider')}`\n\n"
             "A new chat session will start for this authenticated user."
         )
     ).send()
@@ -563,11 +604,9 @@ async def handle_me_command() -> None:
     if not access_token:
         await cl.Message(
             content=(
-                "You are using local development fallback mode.\n\n"
-                f"- User ID: `{DEFAULT_USER_ID}`\n"
-                "- Auth provider: `fallback`\n\n"
+                "You are not logged in.\n\n"
                 "Use `/register <email> <password> [full name]` or "
-                "`/login <email> <password>` to use authenticated mode."
+                "`/login <email> <password>`."
             )
         ).send()
         return
@@ -583,30 +622,31 @@ async def handle_me_command() -> None:
         ).send()
         return
 
+    cl.user_session.set("current_user", user)
+    cl.user_session.set("user_id", user.get("id"))
+    cl.user_session.set("email", user.get("email"))
+    cl.user_session.set("auth_provider", user.get("auth_provider"))
+
     await cl.Message(
         content=(
             "Current authenticated user:\n\n"
-            f"- User ID: `{user['id']}`\n"
-            f"- Email: `{user['email']}`\n"
+            f"- User ID: `{user.get('id')}`\n"
+            f"- Email: `{user.get('email')}`\n"
             f"- Full name: `{user.get('full_name') or 'N/A'}`\n"
-            f"- Auth provider: `{user['auth_provider']}`\n"
-            f"- Active: `{user['is_active']}`"
+            f"- Auth provider: `{user.get('auth_provider')}`\n"
+            f"- Active: `{user.get('is_active')}`"
         )
     ).send()
 
 
 async def handle_logout_command() -> None:
-    cl.user_session.set("access_token", None)
-    cl.user_session.set("email", None)
-    cl.user_session.set("auth_provider", None)
-    cl.user_session.set("user_id", DEFAULT_USER_ID)
-    cl.user_session.set("session_id", None)
+    _clear_auth_session()
 
     await cl.Message(
         content=(
             "Logged out.\n\n"
-            "You are now back in local development fallback mode.\n\n"
-            f"- User ID: `{DEFAULT_USER_ID}`"
+            "Login again with `/login <email> <password>` or register with "
+            "`/register <email> <password> [full name]`."
         )
     ).send()
 
@@ -615,29 +655,33 @@ async def handle_help_command() -> None:
     await cl.Message(
         content=(
             "Available commands:\n\n"
-            "Document commands:\n"
+            "Auth commands:\n"
+            "- `/register <email> <password> [full name]` — create a local user\n"
+            "- `/login <email> <password>` — login\n"
+            "- `/me` — show current authenticated user\n"
+            "- `/logout` — logout\n\n"
+            "Document commands, login required:\n"
+            "- Upload a file in the chat — upload document\n"
             "- `/documents` — list uploaded documents\n"
             "- `/process <document_id>` — extract, chunk, and embed a document\n"
             "- `/reprocess <document_id>` — force reprocess a document\n"
-            "- `/delete <document_id>` — soft delete a document\n"
+            "- `/delete <document_id>` — soft delete a document\n\n"
+            "Category commands:\n"
             "- `/category <category_name>` — set upload category\n"
             "- `/categories` — show supported categories\n\n"
-            "Chat commands:\n"
+            "Chat commands, login required:\n"
+            "- Ask a normal question — run RAG over your documents\n"
             "- `/new` — start a new chat session\n\n"
-            "Auth commands:\n"
-            "- `/register <email> <password> [full name]` — create a local dev user\n"
-            "- `/login <email> <password>` — login with local dev user\n"
-            "- `/me` — show current user\n"
-            "- `/logout` — logout and return to fallback user\n\n"
             "General:\n"
-            "- `/help` — show this help message\n\n"
-            "OAuth login will be added later using Google or Microsoft. "
-            "The backend user model is now OAuth-ready."
+            "- `/help` — show this help message"
         )
     ).send()
 
 
 async def handle_new_command() -> None:
+    if not await _require_login():
+        return
+
     cl.user_session.set("session_id", None)
 
     await cl.Message(
@@ -646,12 +690,13 @@ async def handle_new_command() -> None:
 
 
 async def handle_question(message_text: str) -> None:
-    user_id = _get_user_id()
+    if not await _require_login():
+        return
+
     session_id = cl.user_session.get("session_id")
 
     try:
         response = await ask_question(
-            user_id=user_id,
             question=message_text,
             session_id=session_id,
             access_token=_get_access_token(),
@@ -704,7 +749,8 @@ async def main(message: cl.Message) -> None:
 
     # Keep this order.
     # /categories must be checked before /category.
-    # Auth commands must be checked before fallback question handling.
+    # Auth commands must stay public.
+    # Protected commands call _require_login() inside their handlers.
 
     if normalized == "/documents":
         await handle_documents_command()
