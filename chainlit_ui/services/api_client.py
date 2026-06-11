@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -11,21 +12,23 @@ class APIClientError(Exception):
     """Raised when the backend API returns an error or cannot be reached."""
 
 
+def _auth_headers(access_token: str | None = None) -> dict[str, str]:
+    if access_token:
+        return {"Authorization": f"Bearer {access_token}"}
+
+    return {}
+
+
 def _format_error(response: httpx.Response) -> str:
     try:
         error_body = response.json()
     except ValueError:
-        return response.text or f"Request failed with status {response.status_code}"
+        error_body = response.text
 
     if isinstance(error_body, dict):
         detail = error_body.get("detail")
-        if isinstance(detail, str):
-            return detail
-
-        if isinstance(detail, list):
-            return "; ".join(str(item) for item in detail)
-
-        return str(error_body)
+        if detail:
+            return str(detail)
 
     return str(error_body)
 
@@ -38,6 +41,7 @@ async def _request(
     json: dict[str, Any] | None = None,
     files: dict[str, Any] | None = None,
     data: dict[str, Any] | None = None,
+    access_token: str | None = None,
     timeout: float = 120.0,
 ) -> dict[str, Any] | list[dict[str, Any]]:
     url = f"{BACKEND_BASE_URL}{path}"
@@ -51,6 +55,7 @@ async def _request(
                 json=json,
                 files=files,
                 data=data,
+                headers=_auth_headers(access_token),
             )
     except httpx.RequestError as exc:
         raise APIClientError(
@@ -66,22 +71,85 @@ async def _request(
     return response.json()
 
 
-async def upload_document(
-    user_id: str,
-    file_path: str,
-    file_name: str,
-    category: str = "general",
+async def register_user(
+    email: str,
+    password: str,
+    full_name: str | None = None,
 ) -> dict[str, Any]:
-    with open(file_path, "rb") as file:
+    response = await _request(
+        "POST",
+        "/auth/register",
+        json={
+            "email": email,
+            "password": password,
+            "full_name": full_name,
+        },
+    )
+
+    if not isinstance(response, dict):
+        raise APIClientError("Unexpected register response from backend")
+
+    return response
+
+
+async def login_user(
+    email: str,
+    password: str,
+) -> dict[str, Any]:
+    response = await _request(
+        "POST",
+        "/auth/login",
+        json={
+            "email": email,
+            "password": password,
+        },
+    )
+
+    if not isinstance(response, dict):
+        raise APIClientError("Unexpected login response from backend")
+
+    return response
+
+
+async def get_current_user(
+    access_token: str,
+) -> dict[str, Any]:
+    response = await _request(
+        "GET",
+        "/auth/me",
+        access_token=access_token,
+    )
+
+    if not isinstance(response, dict):
+        raise APIClientError("Unexpected /auth/me response from backend")
+
+    return response
+
+
+async def upload_document(
+    file_path: str,
+    user_id: str,
+    file_name: str | None = None,
+    category: str = "general",
+    access_token: str | None = None,
+) -> dict[str, Any]:
+    path = Path(file_path)
+
+    if not path.exists():
+        raise APIClientError(f"File does not exist: {file_path}")
+
+    upload_file_name = file_name or path.name
+
+    with path.open("rb") as file_obj:
         files = {
             "file": (
-                file_name,
-                file,
-                "application/octet-stream",
+                upload_file_name,
+                file_obj,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             )
         }
 
-        params = {
+        data = {
             "user_id": user_id,
             "category": category,
         }
@@ -89,56 +157,74 @@ async def upload_document(
         response = await _request(
             "POST",
             "/documents/upload",
-            params=params,
             files=files,
-            timeout=120.0,
+            data=data,
+            access_token=access_token,
+            timeout=300.0,
         )
 
-    return dict(response)
+    if not isinstance(response, dict):
+        raise APIClientError("Unexpected upload response from backend")
+
+    return response
 
 
-async def list_documents(user_id: str) -> dict[str, Any]:
+async def list_documents(
+    user_id: str,
+    access_token: str | None = None,
+) -> list[dict[str, Any]]:
     response = await _request(
         "GET",
         "/documents",
         params={"user_id": user_id},
-        timeout=60.0,
+        access_token=access_token,
     )
 
-    return dict(response)
+    if not isinstance(response, list):
+        raise APIClientError("Unexpected documents response from backend")
+
+    return response
 
 
-async def delete_document(user_id: str, document_id: str) -> dict[str, Any]:
+async def process_document(
+    document_id: str,
+    user_id: str,
+    force: bool = False,
+    access_token: str | None = None,
+) -> dict[str, Any]:
+    response = await _request(
+        "POST",
+        f"/documents/{document_id}/process",
+        params={
+            "user_id": user_id,
+            "force": force,
+        },
+        access_token=access_token,
+        timeout=300.0,
+    )
+
+    if not isinstance(response, dict):
+        raise APIClientError("Unexpected process response from backend")
+
+    return response
+
+
+async def delete_document(
+    document_id: str,
+    user_id: str,
+    access_token: str | None = None,
+) -> dict[str, Any]:
     response = await _request(
         "DELETE",
         f"/documents/{document_id}",
         params={"user_id": user_id},
-        timeout=60.0,
+        access_token=access_token,
     )
 
-    return dict(response)
+    if not isinstance(response, dict):
+        raise APIClientError("Unexpected delete response from backend")
 
-
-async def process_document(
-    user_id: str,
-    document_id: str,
-    force: bool = False,
-) -> dict[str, Any]:
-    params: dict[str, Any] = {
-        "user_id": user_id,
-    }
-
-    if force:
-        params["force"] = "true"
-
-    response = await _request(
-        "POST",
-        f"/documents/{document_id}/process",
-        params=params,
-        timeout=300.0,
-    )
-
-    return dict(response)
+    return response
 
 
 async def ask_question(
@@ -150,6 +236,7 @@ async def ask_question(
     vector_top_k: int = 20,
     bm25_top_k: int = 20,
     min_reranker_score: float | None = None,
+    access_token: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "user_id": user_id,
@@ -170,7 +257,11 @@ async def ask_question(
         "POST",
         "/chat/ask",
         json=payload,
+        access_token=access_token,
         timeout=300.0,
     )
 
-    return dict(response)
+    if not isinstance(response, dict):
+        raise APIClientError("Unexpected chat response from backend")
+
+    return response

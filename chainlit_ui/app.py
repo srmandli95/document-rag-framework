@@ -4,13 +4,18 @@ from services.api_client import (
     APIClientError,
     ask_question,
     delete_document,
+    get_current_user,
     list_documents,
+    login_user,
     process_document,
+    register_user,
     upload_document,
 )
 
 
 DEFAULT_USER_ID = "local-user-123"
+DEFAULT_CATEGORY = "general"
+
 
 SUPPORTED_CATEGORIES = [
     "health_insurance",
@@ -27,6 +32,31 @@ SUPPORTED_CATEGORIES = [
     "travel",
     "general",
 ]
+
+
+def _get_access_token() -> str | None:
+    return cl.user_session.get("access_token")
+
+
+def _get_user_id() -> str:
+    return cl.user_session.get("user_id", DEFAULT_USER_ID)
+
+
+def _get_current_category() -> str:
+    return cl.user_session.get("current_category", DEFAULT_CATEGORY)
+
+
+def _store_auth_session(auth_response: dict) -> None:
+    access_token = auth_response["access_token"]
+    user = auth_response["user"]
+
+    cl.user_session.set("access_token", access_token)
+    cl.user_session.set("user_id", user["id"])
+    cl.user_session.set("email", user["email"])
+    cl.user_session.set("auth_provider", user["auth_provider"])
+
+    # New authenticated user context should start a new chat session.
+    cl.user_session.set("session_id", None)
 
 
 def _format_processing_steps(response: dict) -> str:
@@ -51,51 +81,27 @@ def _document_readiness_label(status: str | None) -> tuple[str, str]:
     normalized_status = (status or "unknown").lower()
 
     if normalized_status == "uploaded":
-        return (
-            "Not ready",
-            "type /process <document_id>",
-        )
+        return "Not ready", "type /process <document_id>"
 
     if normalized_status == "processing":
-        return (
-            "Processing",
-            "wait or try /documents later",
-        )
+        return "Processing", "wait or try /documents later"
 
     if normalized_status == "extracted":
-        return (
-            "Partially processed",
-            "type /process <document_id>",
-        )
+        return "Partially processed", "type /process <document_id>"
 
     if normalized_status == "chunked":
-        return (
-            "Partially processed",
-            "type /process <document_id>",
-        )
+        return "Partially processed", "type /process <document_id>"
 
     if normalized_status == "embedded":
-        return (
-            "Ready for questions",
-            "Ask a question now.",
-        )
+        return "Ready for questions", "Ask a question now."
 
     if normalized_status == "failed":
-        return (
-            "Failed",
-            "type /reprocess <document_id>",
-        )
+        return "Failed", "type /reprocess <document_id>"
 
     if normalized_status == "deleted":
-        return (
-            "Deleted",
-            "No action available.",
-        )
+        return "Deleted", "No action available."
 
-    return (
-        "Unknown",
-        "type /documents later or try /process <document_id>",
-    )
+    return "Unknown", "type /documents later or try /process <document_id>"
 
 
 def _format_response_metadata(response: dict) -> str:
@@ -183,27 +189,45 @@ def _extract_document_id(response: dict) -> str | None:
     return None
 
 
-def _get_user_id() -> str:
-    return cl.user_session.get("user_id", DEFAULT_USER_ID)
+def _extract_documents(response: dict | list) -> list[dict]:
+    if isinstance(response, list):
+        return response
+
+    if isinstance(response, dict):
+        documents = response.get("documents")
+        if isinstance(documents, list):
+            return documents
+
+    return []
 
 
 @cl.on_chat_start
 async def on_chat_start() -> None:
-    cl.user_session.set("user_id", DEFAULT_USER_ID)
-    cl.user_session.set("session_id", None)
-    cl.user_session.set("current_category", "general")
+    if cl.user_session.get("user_id") is None:
+        cl.user_session.set("user_id", DEFAULT_USER_ID)
+
+    if cl.user_session.get("session_id") is None:
+        cl.user_session.set("session_id", None)
+
+    if cl.user_session.get("current_category") is None:
+        cl.user_session.set("current_category", DEFAULT_CATEGORY)
 
     await cl.Message(
         content=(
             "Personal Policy RAG Assistant is ready.\n\n"
-            "Upload a document or type `/help` to see available commands."
+            "The app is running in local development fallback mode by default.\n\n"
+            f"- Current fallback user_id: `{DEFAULT_USER_ID}`\n"
+            "- Type `/register <email> <password> [full name]` to create a local dev account.\n"
+            "- Type `/login <email> <password>` to use authenticated mode.\n"
+            "- Type `/help` to see all commands."
         )
     ).send()
 
 
 async def handle_file_uploads(files: list) -> None:
     user_id = _get_user_id()
-    category = cl.user_session.get("current_category", "general")
+    category = _get_current_category()
+    access_token = _get_access_token()
 
     for file in files:
         try:
@@ -212,6 +236,7 @@ async def handle_file_uploads(files: list) -> None:
                 file_path=file.path,
                 file_name=file.name,
                 category=category,
+                access_token=access_token,
             )
 
             document_id = _extract_document_id(response)
@@ -230,38 +255,37 @@ async def handle_file_uploads(files: list) -> None:
                 content=(
                     "Document uploaded successfully.\n\n"
                     f"File: {file.name}\n"
-                    f"Document ID: {document_id}\n"
-                    f"Category: {category}\n"
-                    f"Status: {status}\n\n"
+                    f"Document ID: `{document_id}`\n"
+                    f"Category: `{category}`\n"
+                    f"Status: `{status}`\n\n"
                     "Next step:\n"
                     f"Type `/process {document_id}` to prepare this document for questions.\n\n"
                     "Other actions:\n"
-                    "- /documents\n"
-                    f"- /delete {document_id}\n"
-                    "- /category <category_name>"
+                    "- `/documents`\n"
+                    f"- `/delete {document_id}`\n"
+                    "- `/category <category_name>`"
                 )
             ).send()
 
         except APIClientError as exc:
-            await cl.Message(
-                content=f"Upload failed: {exc}"
-            ).send()
+            await cl.Message(content=f"Upload failed: {exc}").send()
         except Exception as exc:
-            await cl.Message(
-                content=f"Unexpected upload error: {exc}"
-            ).send()
+            await cl.Message(content=f"Unexpected upload error: {exc}").send()
 
 
 async def handle_documents_command() -> None:
     user_id = _get_user_id()
 
     try:
-        response = await list_documents(user_id=user_id)
+        response = await list_documents(
+            user_id=user_id,
+            access_token=_get_access_token(),
+        )
     except APIClientError as exc:
         await cl.Message(content=f"Could not list documents: {exc}").send()
         return
 
-    documents = response.get("documents") or []
+    documents = _extract_documents(response)
 
     visible_documents = [
         document
@@ -282,7 +306,12 @@ async def handle_documents_command() -> None:
 
     for index, document in enumerate(visible_documents, start=1):
         document_id = document.get("document_id") or document.get("id")
-        file_name = document.get("file_name") or document.get("filename") or "Unknown file"
+        file_name = (
+            document.get("file_name")
+            or document.get("filename")
+            or document.get("original_filename")
+            or "Unknown file"
+        )
         category = document.get("category") or "general"
         status = document.get("status") or "unknown"
 
@@ -305,76 +334,46 @@ async def handle_documents_command() -> None:
     await cl.Message(content="\n".join(lines)).send()
 
 
-async def handle_process_command(message_text: str) -> None:
+async def handle_process_command(message_text: str, force: bool = False) -> None:
     user_id = _get_user_id()
     parts = message_text.strip().split(maxsplit=1)
 
+    command_name = "/reprocess" if force else "/process"
+
     if len(parts) < 2 or not parts[1].strip():
-        await cl.Message(content="Usage: /process <document_id>").send()
+        await cl.Message(content=f"Usage: {command_name} <document_id>").send()
         return
 
     document_id = parts[1].strip()
+
+    if force:
+        await cl.Message(
+            content=(
+                "Reprocessing reruns extract → chunk → embed.\n\n"
+                f"Document ID: `{document_id}`"
+            )
+        ).send()
 
     try:
         response = await process_document(
             user_id=user_id,
             document_id=document_id,
-            force=False,
+            force=force,
+            access_token=_get_access_token(),
         )
     except APIClientError as exc:
-        await cl.Message(content=f"Processing failed: {exc}").send()
+        label = "Reprocessing" if force else "Processing"
+        await cl.Message(content=f"{label} failed: {exc}").send()
         return
 
     steps_text = _format_processing_steps(response)
     final_status = response.get("status", "unknown")
     message = response.get("message", "")
 
-    content = (
-        f"Processing result for document `{document_id}`:\n\n"
-        f"{steps_text}\n\n"
-        f"Final status: `{final_status}`\n"
-        f"Message: {message}"
-    )
-
-    if final_status == "embedded":
-        content += "\n\nDocument is ready for questions."
-
-    await cl.Message(content=content).send()
-
-
-async def handle_reprocess_command(message_text: str) -> None:
-    user_id = _get_user_id()
-    parts = message_text.strip().split(maxsplit=1)
-
-    if len(parts) < 2 or not parts[1].strip():
-        await cl.Message(content="Usage: /reprocess <document_id>").send()
-        return
-
-    document_id = parts[1].strip()
-
-    await cl.Message(
-        content=(
-            "Reprocessing reruns extract → chunk → embed.\n\n"
-            f"Document ID: `{document_id}`"
-        )
-    ).send()
-
-    try:
-        response = await process_document(
-            user_id=user_id,
-            document_id=document_id,
-            force=True,
-        )
-    except APIClientError as exc:
-        await cl.Message(content=f"Reprocessing failed: {exc}").send()
-        return
-
-    steps_text = _format_processing_steps(response)
-    final_status = response.get("status", "unknown")
-    message = response.get("message", "")
+    title = "Reprocessing result" if force else "Processing result"
 
     content = (
-        f"Reprocessing result for document `{document_id}`:\n\n"
+        f"{title} for document `{document_id}`:\n\n"
         f"{steps_text}\n\n"
         f"Final status: `{final_status}`\n"
         f"Message: {message}"
@@ -407,6 +406,7 @@ async def handle_delete_command(message_text: str) -> None:
         response = await delete_document(
             user_id=user_id,
             document_id=document_id,
+            access_token=_get_access_token(),
         )
     except APIClientError as exc:
         await cl.Message(content=f"Delete failed: {exc}").send()
@@ -430,7 +430,7 @@ async def handle_categories_command() -> None:
     for category in SUPPORTED_CATEGORIES:
         lines.append(f"- {category}")
 
-    current_category = cl.user_session.get("current_category", "general")
+    current_category = _get_current_category()
 
     lines.append("")
     lines.append(f"Current upload category: `{current_category}`")
@@ -473,18 +473,166 @@ async def handle_category_command(message_text: str) -> None:
     ).send()
 
 
+async def handle_register_command(message_text: str) -> None:
+    parts = message_text.strip().split(maxsplit=3)
+
+    if len(parts) < 3:
+        await cl.Message(
+            content=(
+                "Usage:\n\n"
+                "`/register <email> <password> [full name]`\n\n"
+                "Example:\n\n"
+                "`/register test@example.com password123 Test User`"
+            )
+        ).send()
+        return
+
+    email = parts[1]
+    password = parts[2]
+    full_name = parts[3] if len(parts) >= 4 else None
+
+    try:
+        auth_response = await register_user(
+            email=email,
+            password=password,
+            full_name=full_name,
+        )
+    except APIClientError as exc:
+        await cl.Message(content=f"Register failed: {exc}").send()
+        return
+
+    _store_auth_session(auth_response)
+
+    user = auth_response["user"]
+
+    await cl.Message(
+        content=(
+            "Registered and logged in.\n\n"
+            f"- User ID: `{user['id']}`\n"
+            f"- Email: `{user['email']}`\n"
+            f"- Auth provider: `{user['auth_provider']}`\n\n"
+            "A new chat session will start for this authenticated user."
+        )
+    ).send()
+
+
+async def handle_login_command(message_text: str) -> None:
+    parts = message_text.strip().split(maxsplit=2)
+
+    if len(parts) < 3:
+        await cl.Message(
+            content=(
+                "Usage:\n\n"
+                "`/login <email> <password>`\n\n"
+                "Example:\n\n"
+                "`/login test@example.com password123`"
+            )
+        ).send()
+        return
+
+    email = parts[1]
+    password = parts[2]
+
+    try:
+        auth_response = await login_user(
+            email=email,
+            password=password,
+        )
+    except APIClientError as exc:
+        await cl.Message(content=f"Login failed: {exc}").send()
+        return
+
+    _store_auth_session(auth_response)
+
+    user = auth_response["user"]
+
+    await cl.Message(
+        content=(
+            "Logged in.\n\n"
+            f"- User ID: `{user['id']}`\n"
+            f"- Email: `{user['email']}`\n"
+            f"- Auth provider: `{user['auth_provider']}`\n\n"
+            "A new chat session will start for this authenticated user."
+        )
+    ).send()
+
+
+async def handle_me_command() -> None:
+    access_token = _get_access_token()
+
+    if not access_token:
+        await cl.Message(
+            content=(
+                "You are using local development fallback mode.\n\n"
+                f"- User ID: `{DEFAULT_USER_ID}`\n"
+                "- Auth provider: `fallback`\n\n"
+                "Use `/register <email> <password> [full name]` or "
+                "`/login <email> <password>` to use authenticated mode."
+            )
+        ).send()
+        return
+
+    try:
+        user = await get_current_user(access_token)
+    except APIClientError as exc:
+        await cl.Message(
+            content=(
+                f"Could not validate current user: {exc}\n\n"
+                "Try logging in again with `/login <email> <password>`."
+            )
+        ).send()
+        return
+
+    await cl.Message(
+        content=(
+            "Current authenticated user:\n\n"
+            f"- User ID: `{user['id']}`\n"
+            f"- Email: `{user['email']}`\n"
+            f"- Full name: `{user.get('full_name') or 'N/A'}`\n"
+            f"- Auth provider: `{user['auth_provider']}`\n"
+            f"- Active: `{user['is_active']}`"
+        )
+    ).send()
+
+
+async def handle_logout_command() -> None:
+    cl.user_session.set("access_token", None)
+    cl.user_session.set("email", None)
+    cl.user_session.set("auth_provider", None)
+    cl.user_session.set("user_id", DEFAULT_USER_ID)
+    cl.user_session.set("session_id", None)
+
+    await cl.Message(
+        content=(
+            "Logged out.\n\n"
+            "You are now back in local development fallback mode.\n\n"
+            f"- User ID: `{DEFAULT_USER_ID}`"
+        )
+    ).send()
+
+
 async def handle_help_command() -> None:
     await cl.Message(
         content=(
-            "Available commands:\n"
-            "- /documents — list uploaded documents\n"
-            "- /process <document_id> — extract, chunk, and embed a document\n"
-            "- /reprocess <document_id> — force reprocess a document\n"
-            "- /delete <document_id> — soft delete a document\n"
-            "- /category <category_name> — set upload category\n"
-            "- /categories — show supported categories\n"
-            "- /new — start a new chat session\n"
-            "- /help — show help"
+            "Available commands:\n\n"
+            "Document commands:\n"
+            "- `/documents` — list uploaded documents\n"
+            "- `/process <document_id>` — extract, chunk, and embed a document\n"
+            "- `/reprocess <document_id>` — force reprocess a document\n"
+            "- `/delete <document_id>` — soft delete a document\n"
+            "- `/category <category_name>` — set upload category\n"
+            "- `/categories` — show supported categories\n\n"
+            "Chat commands:\n"
+            "- `/new` — start a new chat session\n\n"
+            "Auth commands:\n"
+            "- `/register <email> <password> [full name]` — create a local dev user\n"
+            "- `/login <email> <password>` — login with local dev user\n"
+            "- `/me` — show current user\n"
+            "- `/logout` — logout and return to fallback user\n\n"
+            "General:\n"
+            "- `/help` — show this help message\n\n"
+            "OAuth login will be added later using Google or Microsoft. "
+            "The backend user model is now OAuth-ready."
         )
     ).send()
 
@@ -506,6 +654,7 @@ async def handle_question(message_text: str) -> None:
             user_id=user_id,
             question=message_text,
             session_id=session_id,
+            access_token=_get_access_token(),
         )
     except APIClientError as exc:
         await cl.Message(content=f"Question failed: {exc}").send()
@@ -553,29 +702,56 @@ async def main(message: cl.Message) -> None:
 
     normalized = message_text.lower()
 
-    if normalized.startswith("/documents"):
+    # Keep this order.
+    # /categories must be checked before /category.
+    # Auth commands must be checked before fallback question handling.
+
+    if normalized == "/documents":
         await handle_documents_command()
+        return
 
-    elif normalized.startswith("/process"):
-        await handle_process_command(message_text)
+    if normalized.startswith("/process "):
+        await handle_process_command(message_text, force=False)
+        return
 
-    elif normalized.startswith("/reprocess"):
-        await handle_reprocess_command(message_text)
+    if normalized.startswith("/reprocess "):
+        await handle_process_command(message_text, force=True)
+        return
 
-    elif normalized.startswith("/delete"):
+    if normalized.startswith("/delete "):
         await handle_delete_command(message_text)
+        return
 
-    elif normalized.startswith("/categories"):
+    if normalized == "/categories":
         await handle_categories_command()
+        return
 
-    elif normalized.startswith("/category"):
+    if normalized.startswith("/category "):
         await handle_category_command(message_text)
+        return
 
-    elif normalized.startswith("/help"):
+    if normalized.startswith("/register "):
+        await handle_register_command(message_text)
+        return
+
+    if normalized.startswith("/login "):
+        await handle_login_command(message_text)
+        return
+
+    if normalized == "/me":
+        await handle_me_command()
+        return
+
+    if normalized == "/logout":
+        await handle_logout_command()
+        return
+
+    if normalized == "/help":
         await handle_help_command()
+        return
 
-    elif normalized.startswith("/new"):
+    if normalized == "/new":
         await handle_new_command()
+        return
 
-    else:
-        await handle_question(message_text)
+    await handle_question(message_text)
