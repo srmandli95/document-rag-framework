@@ -1,21 +1,23 @@
+"""Tests for reranking endpoint with Day 20 authorization."""
+
 import pytest
 from fastapi.testclient import TestClient
 
+from app.auth.dependencies import get_current_user
 from app.main import app
 from app.db.database import get_db
 from app.reranking.cross_encoder_reranker import CrossEncoderReranker
 from app.reranking.reranking_service import rerank_hybrid_results
+from conftest import override_get_db, override_get_current_user, FakeDB
 
 
 client = TestClient(app)
 
 
-class FakeDB:
-    pass
-
-
-def override_get_db():
-    yield FakeDB()
+def setup_auth_overrides(user_id: str = "test-user"):
+    """Setup both DB and auth overrides."""
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = override_get_current_user(user_id)
 
 
 class FakeCrossEncoderModel:
@@ -209,27 +211,17 @@ def test_rerank_hybrid_results_calls_hybrid_search(monkeypatch):
 
 
 def test_rerank_endpoint_success(monkeypatch):
-    app.dependency_overrides[get_db] = override_get_db
+    """Rerank search returns results for authenticated user."""
+    setup_auth_overrides("local-user-123")
 
-    def fake_rerank_hybrid_results(**kwargs):
+    def fake_rerank_hybrid_results(db, user_id: str, query: str, **kwargs):
         return [
             {
                 "chunk_id": "chunk-1",
                 "document_id": "doc-1",
-                "user_id": "local-user-123",
+                "user_id": user_id,
                 "chunk_text": "Urgent care copay is $50.",
                 "chunk_index": 0,
-                "token_count": 12,
-                "page_number": None,
-                "section_title": "Benefits",
-                "document_name": "sample_health_policy.txt",
-                "category": "health_insurance",
-                "vector_score": 0.90,
-                "bm25_score": 1.20,
-                "normalized_vector_score": 1.0,
-                "normalized_bm25_score": 1.0,
-                "hybrid_score": 1.0,
-                "retrieval_sources": ["vector", "bm25"],
                 "reranker_score": 0.98,
                 "reranker_model_name": "fake-reranker",
             }
@@ -241,52 +233,28 @@ def test_rerank_endpoint_success(monkeypatch):
     )
 
     response = client.post(
-        "/retrieval/rerank-search",
+        "/search/rerank",
         json={
-            "user_id": "local-user-123",
             "query": "urgent care copay",
             "top_k": 8,
-            "hybrid_top_k": 20,
-            "vector_top_k": 20,
-            "bm25_top_k": 20,
-            "vector_weight": 0.6,
-            "bm25_weight": 0.4,
         },
     )
-
-    app.dependency_overrides.clear()
 
     assert response.status_code == 200
-
     data = response.json()
-
     assert data["user_id"] == "local-user-123"
-    assert data["query"] == "urgent care copay"
-    assert data["top_k"] == 8
     assert data["result_count"] == 1
     assert data["results"][0]["reranker_score"] == 0.98
-    assert data["results"][0]["reranker_model_name"] == "fake-reranker"
-
-
-def test_rerank_endpoint_empty_user_id_validation():
-    response = client.post(
-        "/retrieval/rerank-search",
-        json={
-            "user_id": "",
-            "query": "urgent care copay",
-        },
-    )
-
-    assert response.status_code == 400
-    assert response.json()["detail"] == "user_id is required"
 
 
 def test_rerank_endpoint_empty_query_validation():
+    """Rerank search rejects empty query."""
+    setup_auth_overrides("test-user")
+
     response = client.post(
-        "/retrieval/rerank-search",
+        "/search/rerank",
         json={
-            "user_id": "local-user-123",
-            "query": "",
+            "query": "   ",
         },
     )
 
@@ -294,13 +262,14 @@ def test_rerank_endpoint_empty_query_validation():
     assert response.json()["detail"] == "query is required"
 
 
-def test_rerank_endpoint_top_k_greater_than_10_is_capped(monkeypatch):
-    app.dependency_overrides[get_db] = override_get_db
+def test_rerank_endpoint_top_k_capped_at_10(monkeypatch):
+    """Rerank search caps top_k at 10."""
+    setup_auth_overrides("test-user")
 
     captured = {}
 
-    def fake_rerank_hybrid_results(**kwargs):
-        captured["top_k"] = kwargs["top_k"]
+    def fake_rerank_hybrid_results(db, user_id: str, query: str, top_k: int = 5, **kwargs):
+        captured["top_k"] = top_k
         return []
 
     monkeypatch.setattr(
@@ -309,31 +278,49 @@ def test_rerank_endpoint_top_k_greater_than_10_is_capped(monkeypatch):
     )
 
     response = client.post(
-        "/retrieval/rerank-search",
+        "/search/rerank",
         json={
-            "user_id": "local-user-123",
-            "query": "urgent care copay",
+            "query": "test",
             "top_k": 50,
         },
     )
 
-    app.dependency_overrides.clear()
-
     assert response.status_code == 200
     assert captured["top_k"] == 10
-    assert response.json()["top_k"] == 10
 
 
-def test_rerank_endpoint_both_weights_zero_returns_400():
-    response = client.post(
-        "/retrieval/rerank-search",
-        json={
-            "user_id": "local-user-123",
-            "query": "urgent care copay",
-            "vector_weight": 0,
-            "bm25_weight": 0,
-        },
+def test_rerank_endpoint_no_results_returns_empty_list(monkeypatch):
+    """Rerank search handles no results gracefully."""
+    setup_auth_overrides("test-user")
+
+    def fake_rerank_hybrid_results(db, user_id: str, query: str, **kwargs):
+        return []
+
+    monkeypatch.setattr(
+        "app.api.retrieval_routes.rerank_hybrid_results",
+        fake_rerank_hybrid_results,
     )
 
-    assert response.status_code == 400
-    assert response.json()["detail"] == "vector_weight and bm25_weight cannot both be 0"
+    response = client.post(
+        "/search/rerank",
+        json={"query": "nonexistent", "top_k": 5},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["result_count"] == 0
+    assert data["results"] == []
+
+
+def test_rerank_endpoint_without_auth_returns_401():
+    """Rerank search requires authentication."""
+    # Don't setup overrides - test unauthenticated access
+    response = client.post(
+        "/search/rerank",
+        json={"query": "test", "top_k": 5},
+    )
+
+    assert response.status_code == 401
+
+
+app.dependency_overrides.clear()
