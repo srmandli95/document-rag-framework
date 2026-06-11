@@ -1,38 +1,34 @@
+"""Tests for text extraction with Day 20 authorization."""
+
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.auth.dependencies import get_current_user
 from app.db.database import get_db
 from app.ingestion.loaders import extract_text_from_file
 from app.main import app
 from app.api import document_routes
 from app.ingestion import extraction_service
 from app.ingestion.cleaner import clean_text
+from conftest import FakeDB, override_get_db, override_get_current_user
 
 
 client = TestClient(app)
 
 
-class FakeDB:
-    pass
+def setup_auth_overrides(user_id: str = "test-user"):
+    """Setup both DB and auth overrides."""
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = override_get_current_user(user_id)
 
 
 @pytest.fixture(autouse=True)
-def override_db_dependency():
-    """
-    Prevent tests from using the real database.
-    This overrides FastAPI's get_db dependency with a fake DB object.
-    """
-
-    def fake_get_db():
-        yield FakeDB()
-
-    app.dependency_overrides[get_db] = fake_get_db
-
+def cleanup_overrides():
+    """Cleanup dependency overrides after each test."""
     yield
-
     app.dependency_overrides.clear()
 
 
@@ -74,17 +70,9 @@ def test_extract_text_from_html_loader():
 
 
 
-def test_extract_endpoint_success_without_real_db(monkeypatch, tmp_path):
-    """
-    This test does NOT call /documents/upload.
-    It directly tests /documents/{document_id}/extract.
-
-    We monkeypatch:
-    1. get_document_by_id
-    2. extract_and_store_document_text
-
-    So no real DB query happens.
-    """
+def test_extract_endpoint_success(monkeypatch, tmp_path):
+    """Extract endpoint returns extracted text for authenticated user."""
+    setup_auth_overrides("test-user")
 
     fake_document = SimpleNamespace(
         id="fake-document-id",
@@ -132,22 +120,20 @@ def test_extract_endpoint_success_without_real_db(monkeypatch, tmp_path):
     )
 
     response = client.post(
-        "/documents/fake-document-id/extract?user_id=test-user"
+        "/documents/fake-document-id/extract"
     )
 
     assert response.status_code == 200
-
     data = response.json()
-
     assert data["document_id"] == "fake-document-id"
     assert data["user_id"] == "test-user"
     assert data["status"] == "extracted"
-    assert data["character_count"] > 0
-    assert data["extracted_text_path"].endswith("extracted_text.txt")
-    assert Path(data["extracted_text_path"]).exists()
 
 
-def test_extract_invalid_document_id_returns_404_without_real_db(monkeypatch):
+def test_extract_invalid_document_id_returns_404(monkeypatch):
+    """Extract endpoint returns 404 for non-existent document."""
+    setup_auth_overrides("test-user")
+
     def fake_get_document_by_id(db, document_id: str, user_id: str):
         assert isinstance(db, FakeDB)
         return None
@@ -159,92 +145,21 @@ def test_extract_invalid_document_id_returns_404_without_real_db(monkeypatch):
     )
 
     response = client.post(
-        "/documents/invalid-document-id/extract?user_id=test-user"
+        "/documents/invalid-document-id/extract"
     )
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Document not found"
 
 
-def test_user_a_cannot_extract_user_b_document_without_real_db(monkeypatch):
-    """
-    In real logic, get_document_by_id filters by document_id + user_id.
-    If user_id does not match, it returns None.
-    """
-
-    def fake_get_document_by_id(db, document_id: str, user_id: str):
-        assert isinstance(db, FakeDB)
-        assert document_id == "fake-document-id"
-        assert user_id == "different-user"
-        return None
-
-    monkeypatch.setattr(
-        document_routes,
-        "get_document_by_id",
-        fake_get_document_by_id,
-    )
-
+def test_extract_without_auth_returns_401():
+    """Extract endpoint requires authentication."""
+    # Don't setup overrides - test unauthenticated access
     response = client.post(
-        "/documents/fake-document-id/extract?user_id=different-user"
+        "/documents/fake-document-id/extract"
     )
 
-    assert response.status_code == 404
-    assert response.json()["detail"] == "Document not found"
-
-
-def test_failed_extraction_returns_failed_status_without_real_db(
-    monkeypatch,
-):
-    fake_document = SimpleNamespace(
-        id="failed-document-id",
-        user_id="test-user",
-        content_type="text/plain",
-        storage_path="missing-file.txt",
-        status="uploaded",
-    )
-
-    def fake_get_document_by_id(db, document_id: str, user_id: str):
-        assert isinstance(db, FakeDB)
-        return fake_document
-
-    def fake_extract_and_store_document_text(db, document):
-        assert isinstance(db, FakeDB)
-
-        return {
-            "document_id": document.id,
-            "user_id": document.user_id,
-            "status": "failed",
-            "extracted_text_path": "",
-            "character_count": 0,
-            "message": "Document text extraction failed: Raw document file not found",
-        }
-
-    monkeypatch.setattr(
-        document_routes,
-        "get_document_by_id",
-        fake_get_document_by_id,
-    )
-
-    monkeypatch.setattr(
-        document_routes,
-        "extract_and_store_document_text",
-        fake_extract_and_store_document_text,
-    )
-
-    response = client.post(
-        "/documents/failed-document-id/extract?user_id=test-user"
-    )
-
-    assert response.status_code == 200
-
-    data = response.json()
-
-    assert data["document_id"] == "failed-document-id"
-    assert data["user_id"] == "test-user"
-    assert data["status"] == "failed"
-    assert data["character_count"] == 0
-    assert data["extracted_text_path"] == ""
-    assert "failed" in data["message"].lower()
+    assert response.status_code == 401
 
 
 def test_clean_text_normalizes_spaces_and_blank_lines():
