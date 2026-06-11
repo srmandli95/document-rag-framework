@@ -1,34 +1,34 @@
 from pathlib import Path
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import get_current_user
 from app.config.settings import settings
 from app.db.database import get_db
+from app.ingestion.chunking_service import chunk_and_store_document_text
+from app.ingestion.document_processing_service import process_document
+from app.ingestion.embedding_indexing_service import embed_document_chunks
+from app.ingestion.extraction_service import extract_and_store_document_text
+from app.models.user import User
 from app.schemas.document_schema import (
+    DocumentChunkingResponse,
     DocumentDeleteResponse,
     DocumentDetailResponse,
+    DocumentEmbeddingResponse,
+    DocumentExtractionResponse,
     DocumentListResponse,
     DocumentMetadata,
-    DocumentUploadResponse,
-    DocumentExtractionResponse,
-    DocumentChunkingResponse,
-    DocumentEmbeddingResponse,
     DocumentProcessingResponse,
+    DocumentUploadResponse,
 )
 from app.services.document_service import (
     create_document_record,
     get_document_by_id,
     get_documents_by_user,
     soft_delete_document,
-    get_document_by_id
 )
 from app.services.local_storage_service import LocalStorageService
-from app.ingestion.extraction_service import extract_and_store_document_text
-from app.ingestion.chunking_service import chunk_and_store_document_text
-from app.ingestion.embedding_indexing_service import embed_document_chunks
-from app.ingestion.document_processing_service import process_document
 
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
@@ -49,18 +49,6 @@ ALLOWED_EXTENSIONS = {
     ".md",
     ".html",
 }
-
-
-def _validate_user_id(user_id: str) -> str:
-    clean_user_id = user_id.strip()
-
-    if not clean_user_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="user_id is required",
-        )
-
-    return clean_user_id
 
 
 def _validate_category(category: str) -> str:
@@ -131,34 +119,95 @@ def _to_document_metadata(document) -> DocumentMetadata:
     )
 
 
+def _get_owned_document_or_404(
+    db: Session,
+    document_id: str,
+    user_id: str,
+):
+    """
+    Fetch a document only if it belongs to the authenticated user.
+
+    Important:
+    - Never trust user_id from query/body/form.
+    - Always scope by current_user.id.
+    - Return 404 instead of 403 so other users cannot confirm the document exists.
+    """
+    document = get_document_by_id(
+        db=db,
+        document_id=document_id,
+        user_id=user_id,
+    )
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    if getattr(document, "status", None) == "deleted":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    if getattr(document, "is_deleted", False):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    if getattr(document, "deleted_at", None) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    return document
+
+
 @router.post("/upload", response_model=DocumentUploadResponse)
 async def upload_document(
-    user_id: str = Form(...),
     category: str = Form(...),
     file: UploadFile = File(...),
+    user_id: str | None = Form(default=None),  # Backward compatible, ignored.
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> DocumentUploadResponse:
-    clean_user_id = _validate_user_id(user_id)
+    """
+    Upload a document for the authenticated user.
+
+    Day 20 auth rule:
+    - JWT is required.
+    - user_id from form is ignored.
+    - document owner is current_user.id.
+    """
+    authenticated_user_id = str(current_user.id)
     clean_category = _validate_category(category)
 
     _validate_file(file)
 
     file_size_bytes = await _get_file_size_bytes(file)
 
-    document_id = str(uuid4())
-
     storage_service = LocalStorageService()
+
+    # Create DB record first or use service-created document ID?
+    # Your existing create_document_record appears to generate the ID itself.
+    # So we save with a temporary UUID-like folder only if needed by storage service.
+    # To preserve your current behavior, we use a generated storage document id.
+    from uuid import uuid4
+
+    storage_document_id = str(uuid4())
 
     storage_metadata = storage_service.save_file(
         file_obj=file.file,
-        user_id=clean_user_id,
-        document_id=document_id,
+        user_id=authenticated_user_id,
+        document_id=storage_document_id,
         original_file_name=file.filename,
     )
 
     document = create_document_record(
         db=db,
-        user_id=clean_user_id,
+        user_id=authenticated_user_id,
         original_file_name=file.filename,
         stored_file_name=storage_metadata["file_name"],
         category=clean_category,
@@ -179,14 +228,22 @@ async def upload_document(
 
 @router.get("", response_model=DocumentListResponse)
 def list_documents(
-    user_id: str = Query(...),
+    user_id: str | None = Query(default=None),  # Backward compatible, ignored.
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> DocumentListResponse:
-    clean_user_id = _validate_user_id(user_id)
+    """
+    List documents owned by the authenticated user.
+
+    Day 20 auth rule:
+    - JWT is required.
+    - query user_id is ignored.
+    """
+    authenticated_user_id = str(current_user.id)
 
     documents = get_documents_by_user(
         db=db,
-        user_id=clean_user_id,
+        user_id=authenticated_user_id,
     )
 
     document_metadata = [
@@ -195,7 +252,7 @@ def list_documents(
     ]
 
     return DocumentListResponse(
-        user_id=clean_user_id,
+        user_id=authenticated_user_id,
         documents=document_metadata,
         count=len(document_metadata),
     )
@@ -204,22 +261,20 @@ def list_documents(
 @router.get("/{document_id}", response_model=DocumentDetailResponse)
 def get_document(
     document_id: str,
-    user_id: str = Query(...),
+    user_id: str | None = Query(default=None),  # Backward compatible, ignored.
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> DocumentDetailResponse:
-    clean_user_id = _validate_user_id(user_id)
+    """
+    Get a single document only if it belongs to the authenticated user.
+    """
+    authenticated_user_id = str(current_user.id)
 
-    document = get_document_by_id(
+    document = _get_owned_document_or_404(
         db=db,
         document_id=document_id,
-        user_id=clean_user_id,
+        user_id=authenticated_user_id,
     )
-
-    if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found",
-        )
 
     metadata = _to_document_metadata(document)
 
@@ -232,15 +287,19 @@ def get_document(
 @router.delete("/{document_id}", response_model=DocumentDeleteResponse)
 def delete_document(
     document_id: str,
-    user_id: str = Query(...),
+    user_id: str | None = Query(default=None),  # Backward compatible, ignored.
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> DocumentDeleteResponse:
-    clean_user_id = _validate_user_id(user_id)
+    """
+    Soft-delete a document only if it belongs to the authenticated user.
+    """
+    authenticated_user_id = str(current_user.id)
 
     document = soft_delete_document(
         db=db,
         document_id=document_id,
-        user_id=clean_user_id,
+        user_id=authenticated_user_id,
     )
 
     if document is None:
@@ -263,26 +322,20 @@ def delete_document(
 )
 def extract_document_text(
     document_id: str,
-    user_id: str = Query(...),
+    user_id: str | None = Query(default=None),  # Backward compatible, ignored.
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> DocumentExtractionResponse:
-    if not user_id.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="user_id is required",
-        )
+    """
+    Extract text from a document owned by the authenticated user.
+    """
+    authenticated_user_id = str(current_user.id)
 
-    document = get_document_by_id(
+    document = _get_owned_document_or_404(
         db=db,
         document_id=document_id,
-        user_id=user_id,
+        user_id=authenticated_user_id,
     )
-
-    if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found",
-        )
 
     result = extract_and_store_document_text(
         db=db,
@@ -291,32 +344,27 @@ def extract_document_text(
 
     return DocumentExtractionResponse(**result)
 
+
 @router.post(
     "/{document_id}/chunk",
     response_model=DocumentChunkingResponse,
 )
 def chunk_document_text(
     document_id: str,
-    user_id: str = Query(...),
+    user_id: str | None = Query(default=None),  # Backward compatible, ignored.
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> DocumentChunkingResponse:
-    if not user_id.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="user_id is required",
-        )
+    """
+    Chunk a document owned by the authenticated user.
+    """
+    authenticated_user_id = str(current_user.id)
 
-    document = get_document_by_id(
+    document = _get_owned_document_or_404(
         db=db,
         document_id=document_id,
-        user_id=user_id,
+        user_id=authenticated_user_id,
     )
-
-    if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found",
-        )
 
     if document.status != "extracted":
         raise HTTPException(
@@ -331,34 +379,32 @@ def chunk_document_text(
 
     return DocumentChunkingResponse(**result)
 
+
 @router.post("/{document_id}/embed", response_model=DocumentEmbeddingResponse)
 def embed_document(
     document_id: str,
-    user_id: str,
-    db=Depends(get_db),
+    user_id: str | None = Query(default=None),  # Backward compatible, ignored.
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> DocumentEmbeddingResponse:
-    if not user_id.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="user_id is required",
-        )
+    """
+    Embed chunks for a document owned by the authenticated user.
+    """
+    authenticated_user_id = str(current_user.id)
 
-    document = get_document_by_id(
+    document = _get_owned_document_or_404(
         db=db,
         document_id=document_id,
-        user_id=user_id,
+        user_id=authenticated_user_id,
     )
-
-    if not document:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found",
-        )
 
     if document.status != "chunked":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Document must be in chunked status before embedding. Current status: {document.status}",
+            detail=(
+                "Document must be in chunked status before embedding. "
+                f"Current status: {document.status}"
+            ),
         )
 
     try:
@@ -375,54 +421,38 @@ def embed_document(
             detail=str(exc),
         ) from exc
 
+
 @router.post("/{document_id}/process", response_model=DocumentProcessingResponse)
 def process_uploaded_document(
     document_id: str,
-    user_id: str,
     force: bool = Query(default=False),
+    user_id: str | None = Query(default=None),  # Backward compatible, ignored.
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> DocumentProcessingResponse:
     """
     Run the full document processing pipeline for a document.
 
-    Supports:
-    - Normal process:
-      POST /documents/{document_id}/process?user_id=local-user-123
+    Day 20 auth rule:
+    - JWT is required.
+    - query user_id is ignored.
+    - document must belong to current_user.id.
 
-    - Force reprocess:
-      POST /documents/{document_id}/process?user_id=local-user-123&force=true
+    Examples after Day 20:
+
+    POST /documents/{document_id}/process
+    POST /documents/{document_id}/process?force=true
+
+    Header:
+    Authorization: Bearer <token>
     """
-    _validate_user_id(user_id)
+    authenticated_user_id = str(current_user.id)
 
-    document = get_document_by_id(
+    document = _get_owned_document_or_404(
         db=db,
         document_id=document_id,
-        user_id=user_id,
+        user_id=authenticated_user_id,
     )
-
-    if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found.",
-        )
-
-    if getattr(document, "status", None) == "deleted":
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found.",
-        )
-
-    if getattr(document, "is_deleted", False):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found.",
-        )
-
-    if getattr(document, "deleted_at", None) is not None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found.",
-        )
 
     return process_document(
         db=db,
