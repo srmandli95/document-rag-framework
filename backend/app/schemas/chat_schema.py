@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 
 class AskRequest(BaseModel):
-    user_id: str
+    user_id: str | None = None
     question: str
     session_id: str | None = None
 
