@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 
 
 class VectorSearchRequest(BaseModel):
-    user_id: str
+    user_id: str | None = None
     query: str
     top_k: int = Field(default=5, ge=1, le=20)
 
@@ -30,7 +30,7 @@ class VectorSearchResponse(BaseModel):
     results: list[VectorSearchResult]
 
 class BM25SearchRequest(BaseModel):
-    user_id: str
+    user_id: str | None = None
     query: str
     top_k: int = Field(default=5, ge=1, le=20)
 
@@ -57,7 +57,7 @@ class BM25SearchResponse(BaseModel):
     results: list[BM25SearchResult]
 
 class HybridSearchRequest(BaseModel):
-    user_id: str
+    user_id: str | None = None
     query: str
     top_k: int = Field(default=5, ge=1)
     vector_top_k: int = Field(default=20, ge=1)
@@ -93,7 +93,7 @@ class HybridSearchResponse(BaseModel):
     results: list[HybridSearchResult]
 
 class RerankSearchRequest(BaseModel):
-    user_id: str
+    user_id: str | None = None
     query: str
     top_k: int = 8
     hybrid_top_k: int = 20
@@ -106,7 +106,7 @@ class RerankSearchRequest(BaseModel):
 class RerankSearchResult(BaseModel):
     chunk_id: str
     document_id: str
-    user_id: str
+    user_id: str | None = None
     chunk_text: str
     chunk_index: int
     token_count: int | None = None
