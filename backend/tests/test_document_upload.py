@@ -145,7 +145,7 @@ def test_reject_missing_category():
 
     assert response.status_code == 422
 
-def test_reject_missing_user_id():
+def test_reject_unauthenticated_upload():
     response = client.post(
         "/documents/upload",
         data={
@@ -160,7 +160,7 @@ def test_reject_missing_user_id():
         },
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 401
 
 
 def test_reject_file_larger_than_max_size(monkeypatch):
