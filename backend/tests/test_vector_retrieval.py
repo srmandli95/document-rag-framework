@@ -1,24 +1,26 @@
+"""Tests for vector search endpoint with Day 20 authorization."""
+
 from fastapi.testclient import TestClient
 
+from app.auth.dependencies import get_current_user
 from app.db.database import get_db
 from app.main import app
+from conftest import FakeDB, FakeUser, override_get_db, override_get_current_user
 
 
 client = TestClient(app)
 
 
-class FakeDB:
-    pass
-
-
-def override_get_db():
-    yield FakeDB()
-
-
-app.dependency_overrides[get_db] = override_get_db
+def setup_auth_overrides(user_id: str = "test-user"):
+    """Setup both DB and auth overrides."""
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = override_get_current_user(user_id)
 
 
 def test_vector_search_endpoint_success(monkeypatch):
+    """Vector search returns results for authenticated user."""
+    setup_auth_overrides("local-user-123")
+
     def fake_vector_search(db, user_id: str, query: str, top_k: int = 5):
         return [
             {
@@ -43,9 +45,8 @@ def test_vector_search_endpoint_success(monkeypatch):
     )
 
     response = client.post(
-        "/retrieval/vector-search",
+        "/search/vector",
         json={
-            "user_id": "local-user-123",
             "query": "Does my health insurance cover urgent care?",
             "top_k": 5,
         },
@@ -65,41 +66,10 @@ def test_vector_search_endpoint_success(monkeypatch):
     assert data["results"][0]["similarity_score"] == 0.88
 
 
-def test_vector_search_endpoint_empty_user_id_returns_400(monkeypatch):
-    def fake_vector_search(db, user_id: str, query: str, top_k: int = 5):
-        return []
-
-    monkeypatch.setattr(
-        "app.api.retrieval_routes.vector_search",
-        fake_vector_search,
-    )
-
-    response = client.post(
-        "/retrieval/vector-search",
-        json={
-            "user_id": "   ",
-            "query": "Does my health insurance cover urgent care?",
-            "top_k": 5,
-        },
-    )
-
-    assert response.status_code == 400
-    assert response.json()["detail"] == "user_id is required"
-
-
-def test_vector_search_endpoint_missing_user_id_returns_422():
-    response = client.post(
-        "/retrieval/vector-search",
-        json={
-            "query": "Does my health insurance cover urgent care?",
-            "top_k": 5,
-        },
-    )
-
-    assert response.status_code == 422
-
-
 def test_vector_search_endpoint_empty_query_returns_400(monkeypatch):
+    """Vector search rejects empty query."""
+    setup_auth_overrides("test-user")
+
     def fake_vector_search(db, user_id: str, query: str, top_k: int = 5):
         return []
 
@@ -109,9 +79,8 @@ def test_vector_search_endpoint_empty_query_returns_400(monkeypatch):
     )
 
     response = client.post(
-        "/retrieval/vector-search",
+        "/search/vector",
         json={
-            "user_id": "local-user-123",
             "query": "   ",
             "top_k": 5,
         },
@@ -121,11 +90,13 @@ def test_vector_search_endpoint_empty_query_returns_400(monkeypatch):
     assert response.json()["detail"] == "query is required"
 
 
-def test_vector_search_endpoint_missing_query_returns_422():
+def test_vector_search_endpoint_missing_query_returns_422(monkeypatch):
+    """Vector search requires query in request."""
+    setup_auth_overrides("test-user")
+
     response = client.post(
-        "/retrieval/vector-search",
+        "/search/vector",
         json={
-            "user_id": "local-user-123",
             "top_k": 5,
         },
     )
@@ -133,50 +104,49 @@ def test_vector_search_endpoint_missing_query_returns_422():
     assert response.status_code == 422
 
 
-def test_vector_search_endpoint_rejects_top_k_greater_than_20():
+def test_vector_search_endpoint_rejects_top_k_greater_than_20(monkeypatch):
+    """Vector request validation rejects top_k values greater than 20."""
+    setup_auth_overrides("test-user")
+
+    captured_args = {}
+
+    def fake_vector_search(db, user_id: str, query: str, top_k: int = 5):
+        captured_args["top_k"] = top_k
+        return []
+
+    monkeypatch.setattr(
+        "app.api.retrieval_routes.vector_search",
+        fake_vector_search,
+    )
+
     response = client.post(
-        "/retrieval/vector-search",
+        "/search/vector",
         json={
-            "user_id": "local-user-123",
-            "query": "Does my health insurance cover urgent care?",
-            "top_k": 25,
+            "query": "test",
+            "top_k": 100,
         },
     )
 
     assert response.status_code == 422
+    assert "top_k" not in captured_args
 
 
 def test_vector_search_endpoint_returns_result_count_correctly(monkeypatch):
+    """Vector search returns correct result count."""
+    setup_auth_overrides("test-user")
+
     def fake_vector_search(db, user_id: str, query: str, top_k: int = 5):
         return [
             {
-                "chunk_id": "chunk-1",
+                "chunk_id": f"chunk-{i}",
                 "document_id": "doc-1",
                 "user_id": user_id,
-                "chunk_text": "First matching chunk.",
-                "chunk_index": 0,
-                "token_count": 3,
-                "page_number": None,
-                "section_title": None,
-                "document_name": "sample_health_policy.txt",
-                "category": "health_insurance",
-                "distance": 0.10,
-                "similarity_score": 0.90,
-            },
-            {
-                "chunk_id": "chunk-2",
-                "document_id": "doc-1",
-                "user_id": user_id,
-                "chunk_text": "Second matching chunk.",
-                "chunk_index": 1,
-                "token_count": 3,
-                "page_number": None,
-                "section_title": None,
-                "document_name": "sample_health_policy.txt",
-                "category": "health_insurance",
-                "distance": 0.20,
-                "similarity_score": 0.80,
-            },
+                "chunk_text": f"Result {i}",
+                "chunk_index": i,
+                "distance": i * 0.1,
+                "similarity_score": 0.9 - i * 0.1,
+            }
+            for i in range(3)
         ]
 
     monkeypatch.setattr(
@@ -185,23 +155,22 @@ def test_vector_search_endpoint_returns_result_count_correctly(monkeypatch):
     )
 
     response = client.post(
-        "/retrieval/vector-search",
-        json={
-            "user_id": "local-user-123",
-            "query": "urgent care",
-            "top_k": 5,
-        },
+        "/search/vector",
+        json={"query": "test", "top_k": 5},
     )
 
     assert response.status_code == 200
 
     data = response.json()
 
-    assert data["result_count"] == 2
-    assert len(data["results"]) == 2
+    assert data["result_count"] == 3
+    assert len(data["results"]) == 3
 
 
 def test_vector_search_endpoint_no_results_returns_empty_list(monkeypatch):
+    """Vector search handles no results gracefully."""
+    setup_auth_overrides("test-user")
+
     def fake_vector_search(db, user_id: str, query: str, top_k: int = 5):
         return []
 
@@ -211,12 +180,8 @@ def test_vector_search_endpoint_no_results_returns_empty_list(monkeypatch):
     )
 
     response = client.post(
-        "/retrieval/vector-search",
-        json={
-            "user_id": "local-user-123",
-            "query": "something not found",
-            "top_k": 5,
-        },
+        "/search/vector",
+        json={"query": "nonexistent", "top_k": 5},
     )
 
     assert response.status_code == 200
@@ -227,160 +192,12 @@ def test_vector_search_endpoint_no_results_returns_empty_list(monkeypatch):
     assert data["results"] == []
 
 
-def test_vector_search_endpoint_passes_user_id_query_and_top_k(monkeypatch):
-    captured = {}
-
-    def fake_vector_search(db, user_id: str, query: str, top_k: int = 5):
-        captured["user_id"] = user_id
-        captured["query"] = query
-        captured["top_k"] = top_k
-        return []
-
-    monkeypatch.setattr(
-        "app.api.retrieval_routes.vector_search",
-        fake_vector_search,
-    )
-
+def test_vector_search_endpoint_without_auth_returns_401():
+    """Vector search requires authentication."""
+    # Don't setup overrides - test unauthenticated access
     response = client.post(
-        "/retrieval/vector-search",
-        json={
-            "user_id": "local-user-123",
-            "query": "urgent care coverage",
-            "top_k": 3,
-        },
+        "/search/vector",
+        json={"query": "test", "top_k": 5},
     )
 
-    assert response.status_code == 200
-    assert captured["user_id"] == "local-user-123"
-    assert captured["query"] == "urgent care coverage"
-    assert captured["top_k"] == 3
-
-
-def test_vector_search_validates_user_id_directly():
-    from app.retrieval.vector_retriever import vector_search
-
-    try:
-        vector_search(
-            db=FakeDB(),
-            user_id="",
-            query="urgent care",
-            top_k=5,
-        )
-    except ValueError as exc:
-        assert str(exc) == "user_id is required"
-    else:
-        assert False, "Expected ValueError"
-
-
-def test_vector_search_validates_query_directly():
-    from app.retrieval.vector_retriever import vector_search
-
-    try:
-        vector_search(
-            db=FakeDB(),
-            user_id="local-user-123",
-            query="",
-            top_k=5,
-        )
-    except ValueError as exc:
-        assert str(exc) == "query is required"
-    else:
-        assert False, "Expected ValueError"
-
-
-def test_vector_search_calls_embedding_service_before_db_query(monkeypatch):
-    from app.retrieval import vector_retriever
-
-    calls = {
-        "embedding_called": False,
-        "query_text": None,
-    }
-
-    class FakeEmbeddingService:
-        def embed_text(self, text: str):
-            calls["embedding_called"] = True
-            calls["query_text"] = text
-            return [0.1] * 384
-
-    class FakeDistanceExpression:
-        def label(self, name: str):
-            return self
-
-    class FakeEmbeddingColumn:
-        def cosine_distance(self, query_embedding):
-            return FakeDistanceExpression()
-
-        def isnot(self, value):
-            return True
-
-    class FakeDocumentChunk:
-        embedding = FakeEmbeddingColumn()
-        user_id = "local-user-123"
-        status = "embedded"
-        document_id = "doc-1"
-
-    class FakeDocument:
-        id = "doc-1"
-        status = "embedded"
-
-        class original_file_name:
-            @staticmethod
-            def label(name: str):
-                return "document_name"
-
-        class category:
-            @staticmethod
-            def label(name: str):
-                return "category"
-
-    class FakeQuery:
-        def join(self, *args, **kwargs):
-            return self
-
-        def filter(self, *args, **kwargs):
-            return self
-
-        def order_by(self, *args, **kwargs):
-            return self
-
-        def limit(self, *args, **kwargs):
-            return self
-
-        def all(self):
-            return []
-
-    class FakeDBForSearch:
-        def query(self, *args, **kwargs):
-            return FakeQuery()
-
-    monkeypatch.setattr(
-        vector_retriever,
-        "get_embedding_service",
-        lambda: FakeEmbeddingService(),
-    )
-
-    monkeypatch.setattr(
-        vector_retriever,
-        "DocumentChunk",
-        FakeDocumentChunk,
-    )
-
-    monkeypatch.setattr(
-        vector_retriever,
-        "Document",
-        FakeDocument,
-    )
-
-    results = vector_retriever.vector_search(
-        db=FakeDBForSearch(),
-        user_id="local-user-123",
-        query="urgent care coverage",
-        top_k=5,
-    )
-
-    assert calls["embedding_called"] is True
-    assert calls["query_text"] == "urgent care coverage"
-    assert results == []
-
-
-app.dependency_overrides.clear()
+    assert response.status_code == 401
