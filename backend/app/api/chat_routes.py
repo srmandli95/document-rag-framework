@@ -1,11 +1,13 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import get_current_user
 from app.db.database import get_async_db, get_db
 from app.graph.rag_graph import run_rag_workflow
+from app.models.user import User
 from app.schemas.chat_schema import (
     AskRequest,
     AskResponse,
@@ -55,36 +57,25 @@ async def ask_question(
     request: AskRequest,
     async_db: AsyncSession = Depends(get_async_db),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> AskResponse:
     """
     Graph-backed answer-generation endpoint with async chat persistence.
 
-    This endpoint:
-    - accepts a user question
-    - creates or reuses a chat session asynchronously
-    - sends the request into the LangGraph RAG workflow
-    - optionally rewrites the query for better retrieval
-    - retrieves and reranks evidence chunks
-    - checks evidence sufficiency before answer generation
-    - skips LLM answer generation when evidence is weak
-    - generates a grounded answer when evidence is sufficient
-    - validates citation support
-    - saves the chat message asynchronously
-    - returns answer, citation metadata, session_id, and message_id
+    Day 20 authorization behavior:
+    - Requires JWT.
+    - Ignores request.user_id if it is still sent by older clients.
+    - Uses current_user.id from the JWT as the real user_id.
+    - Creates or reuses a chat session for the authenticated user only.
+    - Saves chat messages under the authenticated user only.
     """
-    if not request.user_id or not request.user_id.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="user_id is required",
-        )
-
     if not request.question or not request.question.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="question is required",
         )
 
-    user_id = request.user_id.strip()
+    user_id = str(current_user.id)
     question = request.question.strip()
 
     safe_top_k = min(request.top_k, 8)
@@ -131,7 +122,7 @@ async def ask_question(
     )
 
     return AskResponse(
-        user_id=result.get("user_id") or user_id,
+        user_id=user_id,
         question=result.get("question") or question,
         rewritten_question=result.get("rewritten_question"),
         answer=result.get("answer") or "",
@@ -152,24 +143,25 @@ async def ask_question(
 
 @router.get("/sessions", response_model=ChatSessionListResponse)
 async def list_chat_sessions(
-    user_id: str = Query(...),
     async_db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
 ) -> ChatSessionListResponse:
-    if not user_id or not user_id.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="user_id is required",
-        )
+    """
+    List chat sessions for the authenticated user only.
 
-    clean_user_id = user_id.strip()
+    Day 20 authorization behavior:
+    - Requires JWT.
+    - Does not accept or trust query user_id.
+    """
+    user_id = str(current_user.id)
 
     sessions = await chat_service.get_chat_sessions_by_user(
         db=async_db,
-        user_id=clean_user_id,
+        user_id=user_id,
     )
 
     return ChatSessionListResponse(
-        user_id=clean_user_id,
+        user_id=user_id,
         sessions=[
             _to_chat_session_response(session)
             for session in sessions
@@ -180,21 +172,23 @@ async def list_chat_sessions(
 @router.get("/sessions/{session_id}", response_model=ChatSessionDetailResponse)
 async def get_chat_session_detail(
     session_id: str,
-    user_id: str = Query(...),
     async_db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
 ) -> ChatSessionDetailResponse:
-    if not user_id or not user_id.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="user_id is required",
-        )
+    """
+    Get a chat session only if it belongs to the authenticated user.
 
-    clean_user_id = user_id.strip()
+    Day 20 authorization behavior:
+    - Requires JWT.
+    - Does not accept or trust query user_id.
+    - Returns 404 if the session belongs to another user.
+    """
+    user_id = str(current_user.id)
 
     chat_session = await chat_service.get_chat_session(
         db=async_db,
         session_id=session_id,
-        user_id=clean_user_id,
+        user_id=user_id,
     )
 
     if chat_session is None:
@@ -206,7 +200,7 @@ async def get_chat_session_detail(
     messages = await chat_service.get_chat_messages_by_session(
         db=async_db,
         session_id=session_id,
-        user_id=clean_user_id,
+        user_id=user_id,
     )
 
     return ChatSessionDetailResponse(
