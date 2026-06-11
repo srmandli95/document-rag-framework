@@ -1,3 +1,4 @@
+import mimetypes
 import os
 from pathlib import Path
 from typing import Any
@@ -13,10 +14,10 @@ class APIClientError(Exception):
 
 
 def _auth_headers(access_token: str | None = None) -> dict[str, str]:
-    if access_token:
-        return {"Authorization": f"Bearer {access_token}"}
+    if not access_token:
+        return {}
 
-    return {}
+    return {"Authorization": f"Bearer {access_token}"}
 
 
 def _format_error(response: httpx.Response) -> str:
@@ -27,6 +28,10 @@ def _format_error(response: httpx.Response) -> str:
 
     if isinstance(error_body, dict):
         detail = error_body.get("detail")
+
+        if isinstance(detail, list):
+            return "; ".join(str(item) for item in detail)
+
         if detail:
             return str(detail)
 
@@ -68,7 +73,47 @@ async def _request(
     if not response.content:
         return {}
 
-    return response.json()
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise APIClientError(
+            f"Backend returned non-JSON response: {response.text}"
+        ) from exc
+
+
+def _require_access_token(access_token: str | None) -> str:
+    if not access_token:
+        raise APIClientError(
+            "Login required. Please use /login <email> <password> first."
+        )
+
+    return access_token
+
+
+def _guess_content_type(file_name: str) -> str:
+    content_type, _ = mimetypes.guess_type(file_name)
+
+    if content_type:
+        return content_type
+
+    suffix = Path(file_name).suffix.lower()
+
+    if suffix == ".docx":
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+    if suffix == ".pdf":
+        return "application/pdf"
+
+    if suffix == ".txt":
+        return "text/plain"
+
+    if suffix == ".md":
+        return "text/markdown"
+
+    if suffix == ".html":
+        return "text/html"
+
+    return "application/octet-stream"
 
 
 async def register_user(
@@ -76,14 +121,23 @@ async def register_user(
     password: str,
     full_name: str | None = None,
 ) -> dict[str, Any]:
+    """
+    Public endpoint.
+
+    Registers a local user and should return app JWT from backend.
+    """
+    payload: dict[str, Any] = {
+        "email": email,
+        "password": password,
+    }
+
+    if full_name:
+        payload["full_name"] = full_name
+
     response = await _request(
         "POST",
         "/auth/register",
-        json={
-            "email": email,
-            "password": password,
-            "full_name": full_name,
-        },
+        json=payload,
     )
 
     if not isinstance(response, dict):
@@ -96,6 +150,11 @@ async def login_user(
     email: str,
     password: str,
 ) -> dict[str, Any]:
+    """
+    Public endpoint.
+
+    Logs in local user and should return app JWT from backend.
+    """
     response = await _request(
         "POST",
         "/auth/login",
@@ -114,10 +173,17 @@ async def login_user(
 async def get_current_user(
     access_token: str,
 ) -> dict[str, Any]:
+    """
+    Protected endpoint.
+
+    Requires Authorization: Bearer <token>.
+    """
+    token = _require_access_token(access_token)
+
     response = await _request(
         "GET",
         "/auth/me",
-        access_token=access_token,
+        access_token=token,
     )
 
     if not isinstance(response, dict):
@@ -128,29 +194,38 @@ async def get_current_user(
 
 async def upload_document(
     file_path: str,
-    user_id: str,
     file_name: str | None = None,
     category: str = "general",
     access_token: str | None = None,
 ) -> dict[str, Any]:
+    """
+    Protected endpoint.
+
+    Day 20 behavior:
+    - Requires JWT.
+    - Does not send user_id.
+    - Backend uses current_user.id from token.
+    """
+    token = _require_access_token(access_token)
+
     path = Path(file_path)
 
     if not path.exists():
         raise APIClientError(f"File does not exist: {file_path}")
 
     upload_file_name = file_name or path.name
+    content_type = _guess_content_type(upload_file_name)
 
     with path.open("rb") as file_obj:
         files = {
             "file": (
                 upload_file_name,
                 file_obj,
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                content_type,
             )
         }
 
         data = {
-            "user_id": user_id,
             "category": category,
         }
 
@@ -159,7 +234,7 @@ async def upload_document(
             "/documents/upload",
             files=files,
             data=data,
-            access_token=access_token,
+            access_token=token,
             timeout=300.0,
         )
 
@@ -170,17 +245,25 @@ async def upload_document(
 
 
 async def list_documents(
-    user_id: str,
     access_token: str | None = None,
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
+    """
+    Protected endpoint.
+
+    Day 20 behavior:
+    - Requires JWT.
+    - Does not send user_id.
+    - Backend returns documents for current_user.id.
+    """
+    token = _require_access_token(access_token)
+
     response = await _request(
         "GET",
         "/documents",
-        params={"user_id": user_id},
-        access_token=access_token,
+        access_token=token,
     )
 
-    if not isinstance(response, list):
+    if not isinstance(response, dict):
         raise APIClientError("Unexpected documents response from backend")
 
     return response
@@ -188,18 +271,26 @@ async def list_documents(
 
 async def process_document(
     document_id: str,
-    user_id: str,
     force: bool = False,
     access_token: str | None = None,
 ) -> dict[str, Any]:
+    """
+    Protected endpoint.
+
+    Day 20 behavior:
+    - Requires JWT.
+    - Does not send user_id.
+    - Backend checks document ownership using current_user.id.
+    """
+    token = _require_access_token(access_token)
+
     response = await _request(
         "POST",
         f"/documents/{document_id}/process",
         params={
-            "user_id": user_id,
             "force": force,
         },
-        access_token=access_token,
+        access_token=token,
         timeout=300.0,
     )
 
@@ -211,14 +302,22 @@ async def process_document(
 
 async def delete_document(
     document_id: str,
-    user_id: str,
     access_token: str | None = None,
 ) -> dict[str, Any]:
+    """
+    Protected endpoint.
+
+    Day 20 behavior:
+    - Requires JWT.
+    - Does not send user_id.
+    - Backend checks document ownership using current_user.id.
+    """
+    token = _require_access_token(access_token)
+
     response = await _request(
         "DELETE",
         f"/documents/{document_id}",
-        params={"user_id": user_id},
-        access_token=access_token,
+        access_token=token,
     )
 
     if not isinstance(response, dict):
@@ -228,7 +327,6 @@ async def delete_document(
 
 
 async def ask_question(
-    user_id: str,
     question: str,
     session_id: str | None = None,
     top_k: int = 5,
@@ -238,8 +336,17 @@ async def ask_question(
     min_reranker_score: float | None = None,
     access_token: str | None = None,
 ) -> dict[str, Any]:
+    """
+    Protected endpoint.
+
+    Day 20 behavior:
+    - Requires JWT.
+    - Does not send user_id.
+    - Backend uses current_user.id from token.
+    """
+    token = _require_access_token(access_token)
+
     payload: dict[str, Any] = {
-        "user_id": user_id,
         "question": question,
         "top_k": top_k,
         "hybrid_top_k": hybrid_top_k,
@@ -257,7 +364,7 @@ async def ask_question(
         "POST",
         "/chat/ask",
         json=payload,
-        access_token=access_token,
+        access_token=token,
         timeout=300.0,
     )
 
