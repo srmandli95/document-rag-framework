@@ -7,6 +7,7 @@ from app.api import document_routes
 from app.auth.dependencies import get_current_user
 from conftest import override_get_current_user
 from app.ingestion.document_processing_service import process_document
+from app.models.document_processing_job import DocumentProcessingJob
 
 
 class FakeDB:
@@ -16,7 +17,8 @@ class FakeDB:
         self.refreshed = []
 
     def add(self, obj):
-        pass
+        if isinstance(obj, DocumentProcessingJob) and obj.id is None:
+            obj.id = "job-123"
 
     def commit(self):
         self.committed = True
@@ -88,6 +90,7 @@ def test_process_document_calls_extract_chunk_embed_in_order(monkeypatch):
     assert result.message == "Document processed successfully and is ready for questions."
     assert [step.name for step in result.steps] == ["extract", "chunk", "embed"]
     assert all(step.status == "completed" for step in result.steps)
+    assert result.job_id == "job-123"
 
 
 def test_process_document_returns_embedded_status_when_all_steps_succeed(monkeypatch):
@@ -168,7 +171,7 @@ def test_process_document_stops_if_extraction_fails(monkeypatch):
 
     assert calls == ["extract"]
     assert result.status == "failed"
-    assert result.steps[0].name == "process"
+    assert result.steps[0].name == "extract"
     assert result.steps[0].status == "failed"
     assert document.status == "failed"
 
@@ -210,7 +213,7 @@ def test_process_document_stops_if_chunking_fails(monkeypatch):
 
     assert calls == ["extract", "chunk"]
     assert result.status == "failed"
-    assert result.steps[-1].name == "process"
+    assert result.steps[-1].name == "chunk"
     assert result.steps[-1].status == "failed"
     assert document.status == "failed"
 
@@ -257,7 +260,7 @@ def test_process_document_stops_if_embedding_fails(monkeypatch):
 
     assert calls == ["extract", "chunk", "embed"]
     assert result.status == "failed"
-    assert result.steps[-1].name == "process"
+    assert result.steps[-1].name == "embed"
     assert result.steps[-1].status == "failed"
     assert document.status == "failed"
 
