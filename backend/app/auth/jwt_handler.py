@@ -6,11 +6,29 @@ from jose import JWTError, jwt
 from app.config.settings import settings
 
 
+def _sanitize_token_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _sanitize_token_value(item)
+            for key, item in value.items()
+            if key != "hashed_password"
+        }
+
+    if isinstance(value, list):
+        return [_sanitize_token_value(item) for item in value]
+
+    return value
+
+
+def _sanitize_token_data(data: dict[str, Any]) -> dict[str, Any]:
+    return _sanitize_token_value(data)
+
+
 def create_access_token(
     data: dict[str, Any],
     expires_delta: timedelta | None = None,
 ) -> str:
-    token_data = data.copy()
+    token_data = _sanitize_token_data(data)
 
     expire = datetime.now(timezone.utc) + (
         expires_delta
@@ -34,6 +52,10 @@ def decode_access_token(token: str) -> dict[str, Any]:
             settings.JWT_SECRET_KEY,
             algorithms=[settings.JWT_ALGORITHM],
         )
-        return payload
-    except JWTError as exc:
+    except (JWTError, TypeError, ValueError) as exc:
         raise ValueError("Invalid or expired access token") from exc
+
+    if not payload.get("sub"):
+        raise ValueError("Invalid or expired access token")
+
+    return payload

@@ -6,6 +6,7 @@ from services.api_client import (
     delete_document,
     get_current_user,
     get_google_login_url,
+    get_health_status,
     list_documents,
     login_user,
     process_document,
@@ -34,14 +35,19 @@ SUPPORTED_CATEGORIES = [
 ]
 
 
-LOGIN_REQUIRED_MESSAGE = (
-    "Please login using `/login <email> <password>`, register using "
-    "`/register <email> <password> [full name]`, or start Google login with `/google`."
-)
+LOGIN_REQUIRED_MESSAGE = "Please login first using /login, /register, or /google."
 
 
 def _get_access_token() -> str | None:
     return cl.user_session.get("access_token")
+
+
+def _get_user_id() -> str | None:
+    return cl.user_session.get("user_id")
+
+
+def _is_authenticated() -> bool:
+    return bool(_get_access_token() and _get_user_id())
 
 
 def _get_current_category() -> str:
@@ -78,9 +84,7 @@ def _clear_auth_session() -> None:
 
 
 async def _require_login() -> bool:
-    access_token = _get_access_token()
-
-    if access_token:
+    if _is_authenticated():
         return True
 
     await cl.Message(content=LOGIN_REQUIRED_MESSAGE).send()
@@ -237,24 +241,23 @@ async def on_chat_start() -> None:
     if cl.user_session.get("current_category") is None:
         cl.user_session.set("current_category", DEFAULT_CATEGORY)
 
-    await cl.Message(
-        content=(
-            "Personal Policy RAG Assistant is ready.\n\n"
-            "Please login or register before uploading documents, processing documents, "
-            "listing documents, or asking questions.\n\n"
-            "Auth commands:\n"
-            "- `/register <email> <password> [full name]`\n"
-            "- `/login <email> <password>`\n"
-            "- `/google`\n"
-            "- `/token <access_token>`\n"
-            "- `/me`\n"
-            "- `/logout`\n\n"
-            "Useful commands:\n"
-            "- `/help`\n"
-            "- `/categories`\n"
-            "- `/category <category_name>`"
-        )
-    ).send()
+    startup_lines = [
+        "Personal Policy RAG Assistant is ready.",
+        "",
+        "Please login using /login, /register, or /google before uploading documents "
+        "or asking questions.",
+        "",
+        "Use /help to see commands.",
+    ]
+
+    try:
+        health = await get_health_status()
+        if health.get("dev_auth_disabled") is True:
+            startup_lines.extend(["", "Development auth bypass is enabled."])
+    except APIClientError:
+        pass
+
+    await cl.Message(content="\n".join(startup_lines)).send()
 
 
 async def handle_file_uploads(files: list) -> None:
@@ -672,6 +675,7 @@ async def handle_me_command() -> None:
     try:
         user = await get_current_user(access_token)
     except APIClientError as exc:
+        _clear_auth_session()
         await cl.Message(
             content=(
                 f"Could not validate current user: {exc}\n\n"
@@ -712,36 +716,31 @@ async def handle_logout_command() -> None:
 async def handle_help_command() -> None:
     await cl.Message(
         content=(
-            "Available commands:\n\n"
-            "Auth commands:\n"
-            "- `/register <email> <password> [full name]` — create a local user\n"
-            "- `/login <email> <password>` — login\n"
-            "- `/google` — start Google OAuth login\n"
-            "- `/token <access_token>` — finish OAuth login by saving the app JWT\n"
-            "- `/me` — show current authenticated user\n"
-            "- `/logout` — logout\n\n"
-            "Document commands, login required:\n"
-            "- Upload a file in the chat — upload document\n"
-            "- `/documents` — list uploaded documents\n"
-            "- `/process <document_id>` — extract, chunk, and embed a document\n"
-            "- `/reprocess <document_id>` — force reprocess a document\n"
-            "- `/delete <document_id>` — soft delete a document\n\n"
-            "Category commands:\n"
-            "- `/category <category_name>` — set upload category\n"
-            "- `/categories` — show supported categories\n\n"
-            "Chat commands, login required:\n"
-            "- Ask a normal question — run RAG over your documents\n"
-            "- `/new` — start a new chat session\n\n"
+            "Auth:\n"
+            "- `/register <email> <password> [full name]`\n"
+            "- `/login <email> <password>`\n"
+            "- `/google`\n"
+            "- `/token <access_token>`\n"
+            "- `/me`\n"
+            "- `/logout`\n\n"
+            "Documents:\n"
+            "- `/category <category_name>`\n"
+            "- `/categories`\n"
+            "- upload file\n"
+            "- `/documents`\n"
+            "- `/process <document_id>`\n"
+            "- `/reprocess <document_id>`\n"
+            "- `/delete <document_id>`\n\n"
+            "Chat:\n"
+            "- ask a normal question\n"
+            "- `/new`\n\n"
             "General:\n"
-            "- `/help` — show this help message"
+            "- `/help`"
         )
     ).send()
 
 
 async def handle_new_command() -> None:
-    if not await _require_login():
-        return
-
     cl.user_session.set("session_id", None)
 
     await cl.Message(

@@ -1,7 +1,10 @@
+from datetime import datetime, timedelta, timezone
 from typing import Any
+import uuid
 
 import httpx
 from authlib.integrations.httpx_client import AsyncOAuth2Client, OAuth2Client
+from jose import JWTError, jwt
 
 from app.config.settings import settings
 
@@ -10,10 +13,43 @@ GOOGLE_AUTHORIZATION_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_ENDPOINT = "https://www.googleapis.com/oauth2/v2/userinfo"
 GOOGLE_SCOPES = "openid email profile"
+GOOGLE_OAUTH_STATE_EXPIRE_MINUTES = 10
 
 
 class GoogleOAuthError(Exception):
     """Raised when Google OAuth configuration or provider requests fail."""
+
+
+def create_oauth_state() -> str:
+    expires_at = datetime.now(timezone.utc) + timedelta(
+        minutes=GOOGLE_OAUTH_STATE_EXPIRE_MINUTES
+    )
+    payload = {
+        "purpose": "google_oauth",
+        "nonce": str(uuid.uuid4()),
+        "exp": expires_at,
+    }
+    return jwt.encode(
+        payload,
+        settings.JWT_SECRET_KEY,
+        algorithm=settings.JWT_ALGORITHM,
+    )
+
+
+def verify_oauth_state(state: str) -> bool:
+    try:
+        payload = jwt.decode(
+            state,
+            settings.JWT_SECRET_KEY,
+            algorithms=[settings.JWT_ALGORITHM],
+        )
+    except (JWTError, TypeError, ValueError):
+        return False
+
+    return (
+        payload.get("purpose") == "google_oauth"
+        and bool(payload.get("nonce"))
+    )
 
 
 def get_google_oauth_configured() -> bool:

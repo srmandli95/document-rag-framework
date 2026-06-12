@@ -1,10 +1,8 @@
-from typing import Any
-
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
+from app.auth.jwt_handler import decode_access_token
 from app.config.settings import settings
 from app.db.database import get_db
 from app.models.user import User
@@ -28,7 +26,7 @@ class DevAuthUser:
         self.provider_user_id = user_id
 
 
-def _credentials_exception(detail: str = "Could not validate credentials") -> HTTPException:
+def _credentials_exception(detail: str) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail=detail,
@@ -36,26 +34,19 @@ def _credentials_exception(detail: str = "Could not validate credentials") -> HT
     )
 
 
-def _decode_access_token(token: str) -> dict[str, Any]:
+def _get_user_from_token(token: str, db: Session) -> User:
     try:
-        payload = jwt.decode(
-            token,
-            settings.JWT_SECRET_KEY,
-            algorithms=[settings.JWT_ALGORITHM],
-        )
-    except JWTError as exc:
-        raise _credentials_exception("Invalid or expired token") from exc
+        payload = decode_access_token(token)
+        user = db.query(User).filter(User.id == str(payload["sub"])).first()
+    except (KeyError, TypeError, ValueError) as exc:
+        raise _credentials_exception(
+            "Invalid or expired authentication token"
+        ) from exc
 
-    return payload
+    if user is None or not user.is_active:
+        raise _credentials_exception("Invalid or expired authentication token")
 
-
-def _extract_user_id_from_payload(payload: dict[str, Any]) -> str:
-    user_id = payload.get("sub") or payload.get("user_id")
-
-    if not user_id:
-        raise _credentials_exception("Token missing user identity")
-
-    return str(user_id)
+    return user
 
 
 def get_current_user(
@@ -76,24 +67,25 @@ def get_current_user(
         return DevAuthUser(settings.DEV_AUTH_USER_ID)
 
     if credentials is None or credentials.scheme.lower() != "bearer":
-        raise _credentials_exception("Missing Authorization Bearer token")
+        raise _credentials_exception("Authentication required")
 
-    payload = _decode_access_token(credentials.credentials)
-    user_id = _extract_user_id_from_payload(payload)
+    return _get_user_from_token(credentials.credentials, db)
 
-    user = db.query(User).filter(User.id == user_id).first()
 
-    if user is None:
-        raise _credentials_exception("User not found")
+def get_optional_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> User | DevAuthUser | None:
+    if settings.DEV_AUTH_DISABLED:
+        return DevAuthUser(settings.DEV_AUTH_USER_ID)
 
-    if hasattr(user, "is_active") and not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Inactive user",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        return None
 
-    return user
+    try:
+        return _get_user_from_token(credentials.credentials, db)
+    except HTTPException:
+        return None
 
 
 def get_current_user_id(

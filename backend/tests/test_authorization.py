@@ -72,6 +72,25 @@ def test_auth_me_without_token_returns_401(client):
     assert response.status_code == 401
 
 
+def test_health_route_remains_public(client):
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert isinstance(response.json()["dev_auth_disabled"], bool)
+
+
+def test_retrieval_route_paths_remain_unchanged():
+    registered_paths = {route.path for route in app.routes}
+
+    assert {
+        "/search/vector",
+        "/search/bm25",
+        "/search/hybrid",
+        "/search/rerank",
+    }.issubset(registered_paths)
+
+
 def test_register_route_remains_public(client, monkeypatch):
     # This checks the route is not protected.
     # If your register route needs DB and fails with validation/db error,

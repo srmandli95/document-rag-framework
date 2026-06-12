@@ -1,9 +1,11 @@
 import re
+from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from jose import jwt
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -98,7 +100,33 @@ def test_google_login_returns_authorization_url(client, configured_google):
         "http://localhost:8000/auth/google/callback"
     ]
     assert query["state"]
+    assert oauth_google.verify_oauth_state(query["state"][0]) is True
     assert query["prompt"] == ["select_account"]
+
+
+def test_create_oauth_state_returns_signed_valid_state():
+    state = oauth_google.create_oauth_state()
+
+    assert isinstance(state, str)
+    assert oauth_google.verify_oauth_state(state) is True
+
+
+def test_verify_oauth_state_rejects_invalid_state():
+    assert oauth_google.verify_oauth_state("invalid-state") is False
+
+
+def test_verify_oauth_state_rejects_expired_state():
+    expired_state = jwt.encode(
+        {
+            "purpose": "google_oauth",
+            "nonce": "expired-nonce",
+            "exp": datetime.now(timezone.utc) - timedelta(minutes=1),
+        },
+        settings.JWT_SECRET_KEY,
+        algorithm=settings.JWT_ALGORITHM,
+    )
+
+    assert oauth_google.verify_oauth_state(expired_state) is False
 
 
 def test_google_callback_returns_400_when_code_missing(client, configured_google):
@@ -177,6 +205,12 @@ def test_google_callback_returns_html_with_token_and_does_not_store_google_token
     assert response.headers["content-type"].startswith("text/html")
     assert "Google login successful" in response.text
     assert "/token " in response.text
+    assert (
+        "Local development only. In production, tokens should not be displayed in HTML."
+        in response.text
+    )
+    assert "oauth@example.com" in response.text
+    assert "google" in response.text
     assert "google-access-token" not in response.text
     assert "refresh_token" not in captured_user_args
     assert "access_token" not in captured_user_args
