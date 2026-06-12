@@ -7,7 +7,9 @@ from services.api_client import (
     get_current_user,
     get_google_login_url,
     get_health_status,
+    get_processing_job,
     list_documents,
+    list_processing_jobs,
     login_user,
     process_document,
     register_user,
@@ -104,7 +106,7 @@ def _format_processing_steps(response: dict) -> str:
         status = step.get("status", "unknown")
         message = step.get("message", "")
 
-        lines.append(f"- {name}: {status} — {message}")
+        lines.append(f"- {name}: {status} - {message}")
 
     return "\n".join(lines)
 
@@ -407,6 +409,7 @@ async def handle_process_command(message_text: str, force: bool = False) -> None
     steps_text = _format_processing_steps(response)
     final_status = response.get("status", "unknown")
     message = response.get("message", "")
+    job_id = response.get("job_id")
 
     title = "Reprocessing result" if force else "Processing result"
 
@@ -420,7 +423,95 @@ async def handle_process_command(message_text: str, force: bool = False) -> None
     if final_status == "embedded":
         content += "\n\nDocument is ready for questions."
 
+    if job_id:
+        content += (
+            f"\n\nProcessing Job ID: `{job_id}`\n"
+            f"To inspect later: `/job {job_id}`"
+        )
+
     await cl.Message(content=content).send()
+
+
+async def handle_jobs_command(message_text: str) -> None:
+    if not await _require_login():
+        return
+
+    parts = message_text.strip().split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        await cl.Message(content="Usage: /jobs <document_id>").send()
+        return
+
+    document_id = parts[1].strip()
+
+    try:
+        response = await list_processing_jobs(
+            document_id=document_id,
+            access_token=_get_access_token(),
+        )
+    except APIClientError as exc:
+        await cl.Message(content=f"Could not list processing jobs: {exc}").send()
+        return
+
+    jobs = response.get("jobs") or []
+    if not jobs:
+        await cl.Message(content=f"No processing jobs found for `{document_id}`.").send()
+        return
+
+    lines = [f"Processing jobs for `{document_id}` (newest first):"]
+    for job in jobs:
+        lines.extend(
+            [
+                "",
+                f"- Job ID: `{job.get('job_id')}`",
+                f"  Status: `{job.get('status', 'unknown')}`",
+                f"  Force: `{job.get('force', False)}`",
+                f"  Current step: `{job.get('current_step') or 'N/A'}`",
+                f"  Created: `{job.get('created_at') or 'N/A'}`",
+                f"  Completed: `{job.get('completed_at') or 'N/A'}`",
+            ]
+        )
+        if job.get("error_message"):
+            lines.append(f"  Error: {job['error_message']}")
+
+    await cl.Message(content="\n".join(lines)).send()
+
+
+async def handle_job_command(message_text: str) -> None:
+    if not await _require_login():
+        return
+
+    parts = message_text.strip().split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        await cl.Message(content="Usage: /job <job_id>").send()
+        return
+
+    job_id = parts[1].strip()
+
+    try:
+        job = await get_processing_job(
+            job_id=job_id,
+            access_token=_get_access_token(),
+        )
+    except APIClientError as exc:
+        await cl.Message(content=f"Could not get processing job: {exc}").send()
+        return
+
+    lines = [
+        f"Processing job `{job_id}`:",
+        "",
+        f"- Status: `{job.get('status', 'unknown')}`",
+        f"- Force: `{job.get('force', False)}`",
+        f"- Current step: `{job.get('current_step') or 'N/A'}`",
+        f"- Created: `{job.get('created_at') or 'N/A'}`",
+        f"- Completed: `{job.get('completed_at') or 'N/A'}`",
+        "",
+        "Steps:",
+        _format_processing_steps(job),
+    ]
+    if job.get("error_message"):
+        lines.extend(["", f"Error: {job['error_message']}"])
+
+    await cl.Message(content="\n".join(lines)).send()
 
 
 async def handle_delete_command(message_text: str) -> None:
@@ -730,6 +821,8 @@ async def handle_help_command() -> None:
             "- `/documents`\n"
             "- `/process <document_id>`\n"
             "- `/reprocess <document_id>`\n"
+            "- `/jobs <document_id>`\n"
+            "- `/job <job_id>`\n"
             "- `/delete <document_id>`\n\n"
             "Chat:\n"
             "- ask a normal question\n"
@@ -821,6 +914,14 @@ async def main(message: cl.Message) -> None:
 
     if normalized.startswith("/reprocess "):
         await handle_process_command(message_text, force=True)
+        return
+
+    if normalized.startswith("/jobs "):
+        await handle_jobs_command(message_text)
+        return
+
+    if normalized.startswith("/job "):
+        await handle_job_command(message_text)
         return
 
     if normalized.startswith("/delete "):
