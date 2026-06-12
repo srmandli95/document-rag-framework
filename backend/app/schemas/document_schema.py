@@ -87,3 +87,25 @@ class DocumentProcessingResponse(BaseModel):
     status: str
     steps: list[DocumentProcessingStep]
     message: str
+    job_id: str | None = None
+
+
+class DocumentProcessingJobResponse(BaseModel):
+    job_id: str
+    document_id: str
+    user_id: str
+    status: str
+    force: bool
+    current_step: str | None = None
+    steps: list[DocumentProcessingStep]
+    error_message: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class DocumentProcessingJobListResponse(BaseModel):
+    document_id: str
+    user_id: str
+    jobs: list[DocumentProcessingJobResponse]
