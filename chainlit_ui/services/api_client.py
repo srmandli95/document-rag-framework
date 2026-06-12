@@ -170,6 +170,19 @@ async def login_user(
     return response
 
 
+async def get_google_login_url() -> dict[str, Any]:
+    """Return the browser URL that starts Google OAuth login."""
+    response = await _request(
+        "GET",
+        "/auth/google/login",
+    )
+
+    if not isinstance(response, dict) or not response.get("authorization_url"):
+        raise APIClientError("Backend did not return a Google authorization URL")
+
+    return response
+
+
 async def get_current_user(
     access_token: str,
 ) -> dict[str, Any]:
