@@ -130,7 +130,7 @@ def _document_readiness_label(status: str | None) -> tuple[str, str]:
         return "Ready for questions", "Ask a question now."
 
     if normalized_status == "failed":
-        return "Failed", "type /reprocess <document_id>"
+        return "Failed", "type /process <document_id>"
 
     if normalized_status == "deleted":
         return "Deleted", "No action available."
@@ -235,6 +235,72 @@ def _extract_documents(response: dict | list) -> list[dict]:
     return []
 
 
+def _get_action_value(action: cl.Action) -> str:
+    legacy_value = getattr(action, "value", None)
+    if legacy_value:
+        return str(legacy_value)
+
+    payload = getattr(action, "payload", None)
+    if isinstance(payload, dict):
+        value = payload.get("value")
+        if value:
+            return str(value)
+
+    return ""
+
+
+def _action(name: str, value: str, label: str) -> cl.Action:
+    return cl.Action(
+        name=name,
+        payload={"value": value},
+        label=label,
+    )
+
+
+def _document_actions(document: dict) -> list[cl.Action]:
+    document_id = document.get("document_id") or document.get("id")
+    if not document_id:
+        return []
+
+    value = str(document_id)
+    status = str(document.get("status") or "unknown").lower()
+
+    if status in {"uploaded", "extracted", "chunked", "failed"}:
+        return [
+            _action("process_document_action", value, "Process"),
+            _action("delete_document_action", value, "Delete"),
+            _action("view_jobs_action", value, "View Jobs"),
+        ]
+
+    if status == "embedded":
+        return [
+            _action("reprocess_document_action", value, "Reprocess"),
+            _action("delete_document_action", value, "Delete"),
+            _action("view_jobs_action", value, "View Jobs"),
+        ]
+
+    if status == "processing":
+        return [_action("view_jobs_action", value, "View Jobs")]
+
+    return []
+
+
+def _job_detail_action(job_id: str) -> cl.Action:
+    return _action("view_job_detail_action", job_id, "View Job Detail")
+
+
+def _refresh_documents_action() -> cl.Action:
+    return _action("refresh_documents_action", "refresh", "Refresh Documents")
+
+
+def _new_chat_action() -> cl.Action:
+    return _action("new_chat_action", "new", "New Chat")
+
+
+def _google_login_action() -> cl.Action:
+    return _action("google_login_action", "google", "Google Login")
+
+
 @cl.on_chat_start
 async def on_chat_start() -> None:
     if cl.user_session.get("session_id") is None:
@@ -259,7 +325,10 @@ async def on_chat_start() -> None:
     except APIClientError:
         pass
 
-    await cl.Message(content="\n".join(startup_lines)).send()
+    await cl.Message(
+        content="\n".join(startup_lines),
+        actions=[_google_login_action(), _new_chat_action()],
+    ).send()
 
 
 async def handle_file_uploads(files: list) -> None:
@@ -293,17 +362,17 @@ async def handle_file_uploads(files: list) -> None:
             await cl.Message(
                 content=(
                     "Document uploaded successfully.\n\n"
-                    f"File: {file.name}\n"
-                    f"Document ID: `{document_id}`\n"
-                    f"Category: `{category}`\n"
-                    f"Status: `{status}`\n\n"
-                    "Next step:\n"
-                    f"Type `/process {document_id}` to prepare this document for questions.\n\n"
-                    "Other actions:\n"
-                    "- `/documents`\n"
-                    f"- `/delete {document_id}`\n"
-                    "- `/category <category_name>`"
-                )
+                    f"- File: {file.name}\n"
+                    f"- Document ID: `{document_id}`\n"
+                    f"- Category: `{category}`\n"
+                    f"- Status: `{status}`\n\n"
+                    "Select **Process** to prepare this document for questions."
+                ),
+                actions=[
+                    _action("process_document_action", document_id, "Process"),
+                    _action("delete_document_action", document_id, "Delete"),
+                    _refresh_documents_action(),
+                ],
             ).send()
 
         except APIClientError as exc:
@@ -341,9 +410,12 @@ async def handle_documents_command() -> None:
         ).send()
         return
 
-    lines = ["Documents:"]
+    await cl.Message(
+        content=f"Active documents: `{len(visible_documents)}`",
+        actions=[_refresh_documents_action()],
+    ).send()
 
-    for index, document in enumerate(visible_documents, start=1):
+    for document in visible_documents:
         document_id = document.get("document_id") or document.get("id")
         file_name = (
             document.get("file_name")
@@ -355,37 +427,30 @@ async def handle_documents_command() -> None:
         category = document.get("category") or "general"
         status = document.get("status") or "unknown"
 
-        readiness, action = _document_readiness_label(status)
+        readiness, suggested_action = _document_readiness_label(status)
 
-        if action.startswith("type /process") and document_id:
-            action = f"/process {document_id}"
+        if suggested_action.startswith("type /process") and document_id:
+            suggested_action = f"Process this document or use `/process {document_id}`."
 
-        if action.startswith("type /reprocess") and document_id:
-            action = f"/reprocess {document_id}"
+        if suggested_action.startswith("type /reprocess") and document_id:
+            suggested_action = f"Reprocess this document or use `/reprocess {document_id}`."
 
-        lines.append("")
-        lines.append(f"{index}. {file_name}")
-        lines.append(f"   ID: {document_id}")
-        lines.append(f"   Category: {category}")
-        lines.append(f"   Status: {status}")
-        lines.append(f"   Readiness: {readiness}")
-        lines.append(f"   Action: {action}")
+        await cl.Message(
+            content=(
+                f"## {file_name}\n"
+                f"- Document ID: `{document_id}`\n"
+                f"- Category: `{category}`\n"
+                f"- Status: `{status}`\n"
+                f"- Readiness: **{readiness}**\n"
+                f"- Suggested action: {suggested_action}"
+            ),
+            actions=_document_actions(document),
+        ).send()
 
-    await cl.Message(content="\n".join(lines)).send()
 
-
-async def handle_process_command(message_text: str, force: bool = False) -> None:
+async def _handle_process_document(document_id: str, force: bool = False) -> None:
     if not await _require_login():
         return
-
-    parts = message_text.strip().split(maxsplit=1)
-    command_name = "/reprocess" if force else "/process"
-
-    if len(parts) < 2 or not parts[1].strip():
-        await cl.Message(content=f"Usage: {command_name} <document_id>").send()
-        return
-
-    document_id = parts[1].strip()
 
     if force:
         await cl.Message(
@@ -429,19 +494,30 @@ async def handle_process_command(message_text: str, force: bool = False) -> None
             f"To inspect later: `/job {job_id}`"
         )
 
-    await cl.Message(content=content).send()
+    actions = [_refresh_documents_action()]
+    if job_id:
+        actions.insert(
+            0,
+            _action("view_job_detail_action", str(job_id), "View Job"),
+        )
+
+    await cl.Message(content=content, actions=actions).send()
 
 
-async def handle_jobs_command(message_text: str) -> None:
+async def handle_process_command(message_text: str, force: bool = False) -> None:
+    parts = message_text.strip().split(maxsplit=1)
+    command_name = "/reprocess" if force else "/process"
+
+    if len(parts) < 2 or not parts[1].strip():
+        await cl.Message(content=f"Usage: {command_name} <document_id>").send()
+        return
+
+    await _handle_process_document(parts[1].strip(), force=force)
+
+
+async def _handle_document_jobs(document_id: str) -> None:
     if not await _require_login():
         return
-
-    parts = message_text.strip().split(maxsplit=1)
-    if len(parts) < 2 or not parts[1].strip():
-        await cl.Message(content="Usage: /jobs <document_id>").send()
-        return
-
-    document_id = parts[1].strip()
 
     try:
         response = await list_processing_jobs(
@@ -457,35 +533,39 @@ async def handle_jobs_command(message_text: str) -> None:
         await cl.Message(content=f"No processing jobs found for `{document_id}`.").send()
         return
 
-    lines = [f"Processing jobs for `{document_id}` (newest first):"]
+    await cl.Message(
+        content=f"Processing jobs for `{document_id}` (newest first):"
+    ).send()
+
     for job in jobs:
-        lines.extend(
-            [
-                "",
-                f"- Job ID: `{job.get('job_id')}`",
-                f"  Status: `{job.get('status', 'unknown')}`",
-                f"  Force: `{job.get('force', False)}`",
-                f"  Current step: `{job.get('current_step') or 'N/A'}`",
-                f"  Created: `{job.get('created_at') or 'N/A'}`",
-                f"  Completed: `{job.get('completed_at') or 'N/A'}`",
-            ]
-        )
+        job_id = job.get("job_id")
+        lines = [
+            f"## Processing Job `{job_id or 'unknown'}`",
+            f"- Status: `{job.get('status', 'unknown')}`",
+            f"- Force: `{job.get('force', False)}`",
+            f"- Current step: `{job.get('current_step') or 'N/A'}`",
+            f"- Created: `{job.get('created_at') or 'N/A'}`",
+            f"- Completed: `{job.get('completed_at') or 'N/A'}`",
+        ]
         if job.get("error_message"):
-            lines.append(f"  Error: {job['error_message']}")
+            lines.append(f"- Error: {job['error_message']}")
 
-    await cl.Message(content="\n".join(lines)).send()
+        actions = [_job_detail_action(str(job_id))] if job_id else []
+        await cl.Message(content="\n".join(lines), actions=actions).send()
 
 
-async def handle_job_command(message_text: str) -> None:
-    if not await _require_login():
-        return
-
+async def handle_jobs_command(message_text: str) -> None:
     parts = message_text.strip().split(maxsplit=1)
     if len(parts) < 2 or not parts[1].strip():
-        await cl.Message(content="Usage: /job <job_id>").send()
+        await cl.Message(content="Usage: /jobs <document_id>").send()
         return
 
-    job_id = parts[1].strip()
+    await _handle_document_jobs(parts[1].strip())
+
+
+async def _handle_job_detail(job_id: str) -> None:
+    if not await _require_login():
+        return
 
     try:
         job = await get_processing_job(
@@ -499,32 +579,33 @@ async def handle_job_command(message_text: str) -> None:
     lines = [
         f"Processing job `{job_id}`:",
         "",
+        f"- Document ID: `{job.get('document_id') or 'N/A'}`",
         f"- Status: `{job.get('status', 'unknown')}`",
         f"- Force: `{job.get('force', False)}`",
         f"- Current step: `{job.get('current_step') or 'N/A'}`",
-        f"- Created: `{job.get('created_at') or 'N/A'}`",
+        f"- Error: {job.get('error_message') or 'N/A'}",
+        f"- Started: `{job.get('started_at') or 'N/A'}`",
         f"- Completed: `{job.get('completed_at') or 'N/A'}`",
         "",
         "Steps:",
         _format_processing_steps(job),
     ]
-    if job.get("error_message"):
-        lines.extend(["", f"Error: {job['error_message']}"])
 
     await cl.Message(content="\n".join(lines)).send()
 
 
-async def handle_delete_command(message_text: str) -> None:
+async def handle_job_command(message_text: str) -> None:
+    parts = message_text.strip().split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        await cl.Message(content="Usage: /job <job_id>").send()
+        return
+
+    await _handle_job_detail(parts[1].strip())
+
+
+async def _handle_delete_document(document_id: str) -> None:
     if not await _require_login():
         return
-
-    parts = message_text.strip().split(maxsplit=1)
-
-    if len(parts) < 2 or not parts[1].strip():
-        await cl.Message(content="Usage: /delete <document_id>").send()
-        return
-
-    document_id = parts[1].strip()
 
     await cl.Message(
         content=(
@@ -547,11 +628,22 @@ async def handle_delete_command(message_text: str) -> None:
 
     await cl.Message(
         content=(
-            f"{message}\n\n"
-            f"Status: `{status}`\n\n"
-            "Type `/documents` to verify."
-        )
+            "Document was soft deleted.\n\n"
+            f"- Backend message: {message}\n"
+            f"- Status: `{status}`"
+        ),
+        actions=[_refresh_documents_action()],
     ).send()
+
+
+async def handle_delete_command(message_text: str) -> None:
+    parts = message_text.strip().split(maxsplit=1)
+
+    if len(parts) < 2 or not parts[1].strip():
+        await cl.Message(content="Usage: /delete <document_id>").send()
+        return
+
+    await _handle_delete_document(parts[1].strip())
 
 
 async def handle_categories_command() -> None:
@@ -807,6 +899,7 @@ async def handle_logout_command() -> None:
 async def handle_help_command() -> None:
     await cl.Message(
         content=(
+            "You can use buttons in document cards, or slash commands:\n\n"
             "Auth:\n"
             "- `/register <email> <password> [full name]`\n"
             "- `/login <email> <password>`\n"
@@ -817,7 +910,7 @@ async def handle_help_command() -> None:
             "Documents:\n"
             "- `/category <category_name>`\n"
             "- `/categories`\n"
-            "- upload file\n"
+            "- Upload a file\n"
             "- `/documents`\n"
             "- `/process <document_id>`\n"
             "- `/reprocess <document_id>`\n"
@@ -825,11 +918,12 @@ async def handle_help_command() -> None:
             "- `/job <job_id>`\n"
             "- `/delete <document_id>`\n\n"
             "Chat:\n"
-            "- ask a normal question\n"
+            "- Ask a normal question\n"
             "- `/new`\n\n"
             "General:\n"
             "- `/help`"
-        )
+        ),
+        actions=[_google_login_action(), _new_chat_action()],
     ).send()
 
 
@@ -874,6 +968,80 @@ async def handle_question(message_text: str) -> None:
         sections.append(citations)
 
     await cl.Message(content="\n\n".join(sections)).send()
+
+
+async def _send_missing_action_value(resource_name: str) -> None:
+    await cl.Message(
+        content=(
+            f"Could not determine the {resource_name} from this action. "
+            "Refresh the document list and try again."
+        )
+    ).send()
+
+
+@cl.action_callback("process_document_action")
+async def on_process_document_action(action: cl.Action) -> None:
+    document_id = _get_action_value(action)
+    if not document_id:
+        await _send_missing_action_value("document ID")
+        return
+
+    await _handle_process_document(document_id, force=False)
+
+
+@cl.action_callback("reprocess_document_action")
+async def on_reprocess_document_action(action: cl.Action) -> None:
+    document_id = _get_action_value(action)
+    if not document_id:
+        await _send_missing_action_value("document ID")
+        return
+
+    await _handle_process_document(document_id, force=True)
+
+
+@cl.action_callback("delete_document_action")
+async def on_delete_document_action(action: cl.Action) -> None:
+    document_id = _get_action_value(action)
+    if not document_id:
+        await _send_missing_action_value("document ID")
+        return
+
+    await _handle_delete_document(document_id)
+
+
+@cl.action_callback("view_jobs_action")
+async def on_view_jobs_action(action: cl.Action) -> None:
+    document_id = _get_action_value(action)
+    if not document_id:
+        await _send_missing_action_value("document ID")
+        return
+
+    await _handle_document_jobs(document_id)
+
+
+@cl.action_callback("view_job_detail_action")
+async def on_view_job_detail_action(action: cl.Action) -> None:
+    job_id = _get_action_value(action)
+    if not job_id:
+        await _send_missing_action_value("processing job ID")
+        return
+
+    await _handle_job_detail(job_id)
+
+
+@cl.action_callback("refresh_documents_action")
+async def on_refresh_documents_action(action: cl.Action) -> None:
+    await handle_documents_command()
+
+
+@cl.action_callback("new_chat_action")
+async def on_new_chat_action(action: cl.Action) -> None:
+    await handle_new_command()
+
+
+@cl.action_callback("google_login_action")
+async def on_google_login_action(action: cl.Action) -> None:
+    await handle_google_command()
 
 
 @cl.on_message
