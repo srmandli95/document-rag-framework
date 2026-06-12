@@ -1,15 +1,19 @@
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from fastapi.security import HTTPAuthorizationCredentials
+from jose import jwt
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.auth_routes import router as auth_router
+from app.auth.dependencies import get_optional_current_user
 from app.auth.jwt_handler import create_access_token, decode_access_token
 from app.auth.password_utils import hash_password, verify_password
+from app.config.settings import settings
 from app.db.database import get_db
 from app.models.user import User
 from app.services.user_service import (
@@ -120,6 +124,55 @@ def test_decode_access_token_returns_payload_with_expected_fields():
     assert payload["sub"] == "user-123"
     assert payload["email"] == "test@example.com"
     assert payload["auth_provider"] == "local"
+
+
+def test_create_access_token_excludes_hashed_password():
+    token = create_access_token(
+        data={
+            "sub": "user-123",
+            "email": "test@example.com",
+            "auth_provider": "local",
+            "hashed_password": "must-not-appear",
+            "user": {"hashed_password": "must-not-appear-nested"},
+        }
+    )
+
+    payload = decode_access_token(token)
+
+    assert "hashed_password" not in payload
+    assert "hashed_password" not in payload["user"]
+
+
+def test_create_access_token_uses_configured_expiration(monkeypatch):
+    monkeypatch.setattr(settings, "ACCESS_TOKEN_EXPIRE_MINUTES", 7)
+    before = datetime.now(timezone.utc)
+
+    payload = decode_access_token(create_access_token({"sub": "user-123"}))
+    expires_at = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
+
+    assert timedelta(minutes=6, seconds=55) <= expires_at - before
+    assert expires_at - before <= timedelta(minutes=7, seconds=5)
+
+
+def test_decode_access_token_rejects_expired_token():
+    token = create_access_token(
+        {"sub": "user-123"},
+        expires_delta=timedelta(minutes=-1),
+    )
+
+    with pytest.raises(ValueError, match="Invalid or expired access token"):
+        decode_access_token(token)
+
+
+def test_decode_access_token_rejects_token_missing_sub():
+    token = jwt.encode(
+        {"email": "test@example.com"},
+        settings.JWT_SECRET_KEY,
+        algorithm=settings.JWT_ALGORITHM,
+    )
+
+    with pytest.raises(ValueError, match="Invalid or expired access token"):
+        decode_access_token(token)
 
 
 def test_create_local_user_hashes_password_and_sets_auth_provider_local(db_session):
@@ -323,7 +376,93 @@ def test_auth_me_returns_current_user_with_valid_token(auth_test_client):
     assert data["is_active"] is True
 
 
-def test_auth_me_returns_401_or_403_without_token(auth_test_client):
+def test_auth_me_returns_401_without_token(auth_test_client):
     response = auth_test_client.get("/auth/me")
 
-    assert response.status_code in [401, 403]
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Authentication required"
+
+
+def test_auth_me_returns_401_for_invalid_token(auth_test_client):
+    response = auth_test_client.get(
+        "/auth/me",
+        headers={"Authorization": "Bearer invalid-token"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid or expired authentication token"
+
+
+def test_auth_me_returns_401_for_expired_token(auth_test_client):
+    token = create_access_token(
+        {"sub": "user-123"},
+        expires_delta=timedelta(minutes=-1),
+    )
+
+    response = auth_test_client.get(
+        "/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid or expired authentication token"
+
+
+def test_auth_me_returns_401_for_token_missing_sub(auth_test_client):
+    token = jwt.encode(
+        {"email": "test@example.com"},
+        settings.JWT_SECRET_KEY,
+        algorithm=settings.JWT_ALGORITHM,
+    )
+
+    response = auth_test_client.get(
+        "/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid or expired authentication token"
+
+
+def test_auth_me_returns_401_for_missing_user(auth_test_client):
+    token = create_access_token({"sub": "missing-user"})
+
+    response = auth_test_client.get(
+        "/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid or expired authentication token"
+
+
+def test_auth_me_returns_401_for_inactive_user(auth_test_client, db_session):
+    user = create_local_user(
+        db=db_session,
+        email="inactive@example.com",
+        password="password123",
+    )
+    user.is_active = False
+    db_session.commit()
+    token = create_access_token({"sub": user.id})
+
+    response = auth_test_client.get(
+        "/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid or expired authentication token"
+
+
+def test_optional_current_user_returns_none_without_token(db_session):
+    assert get_optional_current_user(credentials=None, db=db_session) is None
+
+
+def test_optional_current_user_returns_none_for_invalid_token(db_session):
+    credentials = HTTPAuthorizationCredentials(
+        scheme="Bearer",
+        credentials="invalid-token",
+    )
+
+    assert get_optional_current_user(credentials=credentials, db=db_session) is None
