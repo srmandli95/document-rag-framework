@@ -10,6 +10,7 @@ from app.api.chat_routes import router as chat_router
 from app.api.auth_routes import router as auth_router
 from app.models.chat_session import ChatSession
 from app.models.chat_message import ChatMessage
+from app.models.document_processing_job import DocumentProcessingJob
 from app.models.user import User
 from app.config.settings import settings
 from app.db.database import Base, engine
