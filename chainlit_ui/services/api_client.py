@@ -6,7 +6,10 @@ from typing import Any
 import httpx
 
 
-BACKEND_BASE_URL = os.getenv("BACKEND_BASE_URL", "http://backend:8000")
+BACKEND_BASE_URL = os.getenv(
+    "BACKEND_BASE_URL",
+    os.getenv("BACKEND_API_URL", "http://backend:8000"),
+).rstrip("/")
 
 
 class APIClientError(Exception):
@@ -68,6 +71,8 @@ async def _request(
         ) from exc
 
     if response.status_code >= 400:
+        if response.status_code == 401:
+            raise APIClientError("Authentication failed. Please login again.")
         raise APIClientError(_format_error(response))
 
     if not response.content:
@@ -84,7 +89,7 @@ async def _request(
 def _require_access_token(access_token: str | None) -> str:
     if not access_token:
         raise APIClientError(
-            "Login required. Please use /login <email> <password> first."
+            "Please login first using /login, /register, or /google."
         )
 
     return access_token
@@ -172,13 +177,29 @@ async def login_user(
 
 async def get_google_login_url() -> dict[str, Any]:
     """Return the browser URL that starts Google OAuth login."""
-    response = await _request(
-        "GET",
-        "/auth/google/login",
-    )
+    try:
+        response = await _request(
+            "GET",
+            "/auth/google/login",
+        )
+    except APIClientError as exc:
+        if "Google OAuth is not configured" in str(exc):
+            raise APIClientError(
+                "Google login is not configured. Use /login or /register instead."
+            ) from exc
+        raise
 
     if not isinstance(response, dict) or not response.get("authorization_url"):
         raise APIClientError("Backend did not return a Google authorization URL")
+
+    return response
+
+
+async def get_health_status() -> dict[str, Any]:
+    response = await _request("GET", "/health")
+
+    if not isinstance(response, dict):
+        raise APIClientError("Unexpected health response from backend")
 
     return response
 
