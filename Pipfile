@@ -29,6 +29,7 @@ passlib = {extras = ["bcrypt"], version = "*"}
 python-jose = {extras = ["cryptography"], version = "*"}
 email-validator = "*"
 bcrypt = "<5.0.0"
+authlib = "*"
 
 [dev-packages]
 pytest = "*"

@@ -5,6 +5,7 @@ from services.api_client import (
     ask_question,
     delete_document,
     get_current_user,
+    get_google_login_url,
     list_documents,
     login_user,
     process_document,
@@ -34,8 +35,8 @@ SUPPORTED_CATEGORIES = [
 
 
 LOGIN_REQUIRED_MESSAGE = (
-    "Please login first using `/login <email> <password>` "
-    "or register using `/register <email> <password> [full name]`."
+    "Please login using `/login <email> <password>`, register using "
+    "`/register <email> <password> [full name]`, or start Google login with `/google`."
 )
 
 
@@ -244,6 +245,8 @@ async def on_chat_start() -> None:
             "Auth commands:\n"
             "- `/register <email> <password> [full name]`\n"
             "- `/login <email> <password>`\n"
+            "- `/google`\n"
+            "- `/token <access_token>`\n"
             "- `/me`\n"
             "- `/logout`\n\n"
             "Useful commands:\n"
@@ -598,6 +601,61 @@ async def handle_login_command(message_text: str) -> None:
     ).send()
 
 
+async def handle_google_command() -> None:
+    try:
+        response = await get_google_login_url()
+    except APIClientError as exc:
+        await cl.Message(content=f"Could not start Google login: {exc}").send()
+        return
+
+    authorization_url = response["authorization_url"]
+
+    await cl.Message(
+        content=(
+            "Google login:\n\n"
+            f"1. Open this URL in your browser:\n{authorization_url}\n\n"
+            "2. Complete Google login.\n"
+            "3. Copy the app token shown on the success page.\n"
+            "4. Paste it here using:\n"
+            "`/token <access_token>`"
+        )
+    ).send()
+
+
+async def handle_token_command(message_text: str) -> None:
+    parts = message_text.strip().split(maxsplit=1)
+
+    if len(parts) < 2 or not parts[1].strip():
+        await cl.Message(content="Usage: `/token <access_token>`").send()
+        return
+
+    access_token = parts[1].strip()
+
+    try:
+        user = await get_current_user(access_token)
+    except APIClientError as exc:
+        _clear_auth_session()
+        await cl.Message(content=f"Token login failed: {exc}").send()
+        return
+
+    _store_auth_session(
+        {
+            "access_token": access_token,
+            "user": user,
+        }
+    )
+
+    await cl.Message(
+        content=(
+            "Logged in with app token.\n\n"
+            f"- User ID: `{user.get('id')}`\n"
+            f"- Email: `{user.get('email')}`\n"
+            f"- Auth provider: `{user.get('auth_provider')}`\n\n"
+            "A new chat session will start for this authenticated user."
+        )
+    ).send()
+
+
 async def handle_me_command() -> None:
     access_token = _get_access_token()
 
@@ -606,7 +664,7 @@ async def handle_me_command() -> None:
             content=(
                 "You are not logged in.\n\n"
                 "Use `/register <email> <password> [full name]` or "
-                "`/login <email> <password>`."
+                "`/login <email> <password>`, or start Google login with `/google`."
             )
         ).send()
         return
@@ -617,7 +675,7 @@ async def handle_me_command() -> None:
         await cl.Message(
             content=(
                 f"Could not validate current user: {exc}\n\n"
-                "Try logging in again with `/login <email> <password>`."
+                "Try logging in again with `/login <email> <password>` or `/google`."
             )
         ).send()
         return
@@ -645,8 +703,8 @@ async def handle_logout_command() -> None:
     await cl.Message(
         content=(
             "Logged out.\n\n"
-            "Login again with `/login <email> <password>` or register with "
-            "`/register <email> <password> [full name]`."
+            "Login again with `/login <email> <password>` or `/google`, or register "
+            "with `/register <email> <password> [full name]`."
         )
     ).send()
 
@@ -658,6 +716,8 @@ async def handle_help_command() -> None:
             "Auth commands:\n"
             "- `/register <email> <password> [full name]` — create a local user\n"
             "- `/login <email> <password>` — login\n"
+            "- `/google` — start Google OAuth login\n"
+            "- `/token <access_token>` — finish OAuth login by saving the app JWT\n"
             "- `/me` — show current authenticated user\n"
             "- `/logout` — logout\n\n"
             "Document commands, login required:\n"
@@ -782,6 +842,14 @@ async def main(message: cl.Message) -> None:
 
     if normalized.startswith("/login "):
         await handle_login_command(message_text)
+        return
+
+    if normalized == "/google":
+        await handle_google_command()
+        return
+
+    if normalized == "/token" or normalized.startswith("/token "):
+        await handle_token_command(message_text)
         return
 
     if normalized == "/me":

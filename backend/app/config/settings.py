@@ -9,8 +9,6 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str
 
-    JWT_SECRET_KEY: str = "change_me"
-
     ASYNC_DATABASE_URL: str = (
         "postgresql+asyncpg://personal_policy_rag_assistant:"
         "personal_policy_rag_assistant@postgres:5432/personal_policy_rag_assistant"
@@ -30,7 +28,7 @@ class Settings(BaseSettings):
     RERANKER_TOP_K: int = 8
 
     LLM_PROVIDER: str = "openai"
-    OPENAI_API_KEY: str = ""
+    OPENAI_API_KEY: str | None = None
     OPENAI_MODEL_NAME: str = "gpt-4o-mini"
     ANSWER_TOP_K: int = 5
 
@@ -50,9 +48,6 @@ class Settings(BaseSettings):
 
     DEV_AUTH_DISABLED: bool = False
     DEV_AUTH_USER_ID: str = "local-user-123"
-
-    LLM_PROVIDER: str = "openai"
-    OPENAI_API_KEY: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
