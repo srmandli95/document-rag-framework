@@ -334,6 +334,40 @@ async def process_document(
     return response
 
 
+async def list_processing_jobs(
+    document_id: str,
+    access_token: str | None = None,
+) -> dict[str, Any]:
+    token = _require_access_token(access_token)
+    response = await _request(
+        "GET",
+        f"/documents/{document_id}/processing-jobs",
+        access_token=token,
+    )
+
+    if not isinstance(response, dict):
+        raise APIClientError("Unexpected processing jobs response from backend")
+
+    return response
+
+
+async def get_processing_job(
+    job_id: str,
+    access_token: str | None = None,
+) -> dict[str, Any]:
+    token = _require_access_token(access_token)
+    response = await _request(
+        "GET",
+        f"/documents/processing-jobs/{job_id}",
+        access_token=token,
+    )
+
+    if not isinstance(response, dict):
+        raise APIClientError("Unexpected processing job response from backend")
+
+    return response
+
+
 async def delete_document(
     document_id: str,
     access_token: str | None = None,
