@@ -20,6 +20,8 @@ from app.schemas.document_schema import (
     DocumentListResponse,
     DocumentMetadata,
     DocumentProcessingResponse,
+    DocumentProcessingJobListResponse,
+    DocumentProcessingJobResponse,
     DocumentUploadResponse,
 )
 from app.services.document_service import (
@@ -27,6 +29,10 @@ from app.services.document_service import (
     get_document_by_id,
     get_documents_by_user,
     soft_delete_document,
+)
+from app.services.document_processing_job_service import (
+    get_processing_job_by_id,
+    get_processing_jobs_by_document,
 )
 from app.services.local_storage_service import LocalStorageService
 
@@ -116,6 +122,23 @@ def _to_document_metadata(document) -> DocumentMetadata:
         status=document.status,
         created_at=document.created_at,
         updated_at=document.updated_at,
+    )
+
+
+def _to_processing_job_response(job) -> DocumentProcessingJobResponse:
+    return DocumentProcessingJobResponse(
+        job_id=job.id,
+        document_id=job.document_id,
+        user_id=job.user_id,
+        status=job.status,
+        force=job.force,
+        current_step=job.current_step,
+        steps=job.steps or [],
+        error_message=job.error_message,
+        started_at=job.started_at,
+        completed_at=job.completed_at,
+        created_at=job.created_at,
+        updated_at=job.updated_at,
     )
 
 
@@ -256,6 +279,26 @@ def list_documents(
         documents=document_metadata,
         count=len(document_metadata),
     )
+
+
+@router.get(
+    "/processing-jobs/{job_id}",
+    response_model=DocumentProcessingJobResponse,
+)
+def get_processing_job_detail(
+    job_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DocumentProcessingJobResponse:
+    job = get_processing_job_by_id(db, job_id, str(current_user.id))
+
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Processing job not found",
+        )
+
+    return _to_processing_job_response(job)
 
 
 @router.get("/{document_id}", response_model=DocumentDetailResponse)
@@ -458,4 +501,24 @@ def process_uploaded_document(
         db=db,
         document=document,
         force=force,
+    )
+
+
+@router.get(
+    "/{document_id}/processing-jobs",
+    response_model=DocumentProcessingJobListResponse,
+)
+def list_document_processing_jobs(
+    document_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DocumentProcessingJobListResponse:
+    authenticated_user_id = str(current_user.id)
+    _get_owned_document_or_404(db, document_id, authenticated_user_id)
+    jobs = get_processing_jobs_by_document(db, document_id, authenticated_user_id)
+
+    return DocumentProcessingJobListResponse(
+        document_id=document_id,
+        user_id=authenticated_user_id,
+        jobs=[_to_processing_job_response(job) for job in jobs],
     )
