@@ -1,20 +1,20 @@
-from datetime import timedelta
 from html import escape
-import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user
-from app.auth.jwt_handler import create_access_token, decode_access_token
+from app.auth.jwt_handler import create_access_token
 from app.auth.oauth_google import (
     GoogleOAuthError,
     build_google_authorization_url,
+    create_oauth_state,
     exchange_google_code_for_token,
     fetch_google_userinfo,
     get_google_oauth_configured,
     validate_google_userinfo,
+    verify_oauth_state,
 )
 from app.db.database import get_db
 from app.models.user import User
@@ -33,7 +33,6 @@ from app.services.user_service import (
 
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
-GOOGLE_OAUTH_STATE_EXPIRE_MINUTES = 10
 
 
 def _build_token_response(user: User) -> AuthTokenResponse:
@@ -52,29 +51,11 @@ def _build_token_response(user: User) -> AuthTokenResponse:
     )
 
 
-def _create_google_oauth_state() -> str:
-    return create_access_token(
-        data={
-            "purpose": "google_oauth_state",
-            "nonce": secrets.token_urlsafe(24),
-        },
-        expires_delta=timedelta(minutes=GOOGLE_OAUTH_STATE_EXPIRE_MINUTES),
-    )
-
-
 def _validate_google_oauth_state(state_value: str) -> None:
-    try:
-        payload = decode_access_token(state_value)
-    except ValueError as exc:
+    if not verify_oauth_state(state_value):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired Google OAuth state",
-        ) from exc
-
-    if payload.get("purpose") != "google_oauth_state" or not payload.get("nonce"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid Google OAuth state",
         )
 
 
@@ -152,7 +133,7 @@ def google_login() -> dict[str, str]:
 
     try:
         authorization_url = build_google_authorization_url(
-            state=_create_google_oauth_state()
+            state=create_oauth_state()
         )
     except GoogleOAuthError as exc:
         raise HTTPException(
@@ -181,8 +162,8 @@ async def google_callback(
             detail="Missing Google OAuth state",
         )
 
-    _require_google_oauth_configured()
     _validate_google_oauth_state(state)
+    _require_google_oauth_configured()
 
     try:
         google_token = await exchange_google_code_for_token(code)
@@ -226,9 +207,10 @@ async def google_callback(
   <h1>Google login successful</h1>
   <p>Email: <strong>{email}</strong></p>
   <p>Auth provider: <strong>{auth_provider}</strong></p>
-  <p>This app access token is for local development only:</p>
+  <p><strong>Local development only. In production, tokens should not be displayed in HTML.</strong></p>
+  <p>This PersonalPolicyRagAssistant app access token is not a Google access token:</p>
   <pre>{access_token}</pre>
-  <p>Copy this token and paste it in Chainlit:</p>
+  <p>Use this exact Chainlit command:</p>
   <pre>/token {access_token}</pre>
 </body>
 </html>"""
