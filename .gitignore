@@ -56,6 +56,10 @@ vector_store/
 htmlcov/
 coverage.xml
 
+# Generated Chainlit configuration
+.chainlit/
+chainlit_ui/.chainlit/
+
 # Secrets / keys
 *.pem
 *.key
