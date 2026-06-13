@@ -1,8 +1,16 @@
 import argparse
 import sys
+from datetime import datetime, timezone
+from uuid import uuid4
 
 from app.db.database import SessionLocal
 from app.evaluation.eval_loader import load_eval_cases
+from app.evaluation.eval_regression import compare_eval_runs
+from app.evaluation.eval_reporter import (
+    load_eval_result_json,
+    save_eval_result_json,
+    save_markdown_report,
+)
 from app.evaluation.eval_runner import run_rag_evaluation
 
 
@@ -26,7 +34,54 @@ def parse_args() -> argparse.Namespace:
         default=5,
         help="Final retrieval result count.",
     )
+    parser.add_argument(
+        "--output-json",
+        default="eval/results/latest_eval_result.json",
+        help="Path for the current evaluation result JSON.",
+    )
+    parser.add_argument(
+        "--output-md",
+        default="eval/results/latest_eval_report.md",
+        help="Path for the current evaluation Markdown report.",
+    )
+    parser.add_argument(
+        "--baseline-json",
+        help="Optional previous evaluation result JSON to compare against.",
+    )
     return parser.parse_args()
+
+
+def _print_evaluation_summary(result) -> None:
+    print("RAG Evaluation Summary")
+    print(f"Total: {result.total}")
+    print(f"Passed: {result.passed}")
+    print(f"Failed: {result.failed}")
+    print(f"Pass rate: {result.pass_rate:.2f}%")
+
+    failed_results = [
+        case_result
+        for case_result in result.results
+        if not case_result.passed
+    ]
+    if failed_results:
+        print("\nFailed cases:")
+        for case_result in failed_results:
+            reasons = "; ".join(case_result.failure_reasons)
+            print(f"- {case_result.id}: {reasons}")
+
+
+def _print_regression_summary(regression) -> None:
+    print("\nRAG Regression Summary")
+    print(f"Baseline pass rate: {regression.baseline_pass_rate:.2f}%")
+    print(f"Current pass rate: {regression.current_pass_rate:.2f}%")
+    print(f"Regressed cases: {len(regression.regressed_case_ids)}")
+    print(f"Improved cases: {len(regression.improved_case_ids)}")
+    print(f"New cases: {len(regression.new_case_ids)}")
+    print(f"Removed cases: {len(regression.removed_case_ids)}")
+    print(f"Regression check: {'PASSED' if regression.passed else 'FAILED'}")
+
+    for reason in regression.failure_reasons:
+        print(f"- {reason}")
 
 
 def main() -> int:
@@ -49,24 +104,36 @@ def main() -> int:
     finally:
         db.close()
 
-    print("RAG Evaluation Summary")
-    print(f"Total: {result.total}")
-    print(f"Passed: {result.passed}")
-    print(f"Failed: {result.failed}")
-    print(f"Pass rate: {result.pass_rate:.2f}%")
+    result.run_id = str(uuid4())
+    result.created_at = datetime.now(timezone.utc).isoformat()
+    result.user_id = args.user_id
+    result.eval_file = args.eval_file
 
-    failed_results = [
-        case_result
-        for case_result in result.results
-        if not case_result.passed
-    ]
-    if failed_results:
-        print("\nFailed cases:")
-        for case_result in failed_results:
-            reasons = "; ".join(case_result.failure_reasons)
-            print(f"- {case_result.id}: {reasons}")
+    regression = None
+    if args.baseline_json:
+        try:
+            baseline = load_eval_result_json(args.baseline_json)
+            regression = compare_eval_runs(baseline, result)
+        except (FileNotFoundError, OSError, TypeError, ValueError) as exc:
+            print(f"Could not compare baseline evaluation: {exc}", file=sys.stderr)
+            return 1
 
-    return 0 if result.failed == 0 else 1
+    try:
+        save_eval_result_json(result, args.output_json)
+        save_markdown_report(result, args.output_md, regression)
+    except OSError as exc:
+        print(f"Could not save evaluation reports: {exc}", file=sys.stderr)
+        return 1
+
+    _print_evaluation_summary(result)
+    if regression is not None:
+        _print_regression_summary(regression)
+
+    print(f"\nJSON result: {args.output_json}")
+    print(f"Markdown report: {args.output_md}")
+
+    regression_failed = regression is not None and not regression.passed
+    return 0 if result.failed == 0 and not regression_failed else 1
 
 
 if __name__ == "__main__":
