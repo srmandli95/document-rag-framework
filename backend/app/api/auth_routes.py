@@ -208,10 +208,9 @@ async def google_callback(
   <p>Email: <strong>{email}</strong></p>
   <p>Auth provider: <strong>{auth_provider}</strong></p>
   <p><strong>Local development only. In production, tokens should not be displayed in HTML.</strong></p>
-  <p>This PersonalPolicyRagAssistant app access token is not a Google access token:</p>
+  <p>This application access token is not a Google access token:</p>
   <pre>{access_token}</pre>
-  <p>Use this exact Chainlit command:</p>
-  <pre>/token {access_token}</pre>
+  <p>Store this token in the frontend as <code>rag_access_token</code> for local development.</p>
 </body>
 </html>"""
     )
