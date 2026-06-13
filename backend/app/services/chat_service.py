@@ -152,3 +152,18 @@ async def get_chat_messages_by_session(
     )
 
     return list(result.scalars().all())
+
+
+async def get_chat_message_by_id(
+    db: AsyncSession,
+    message_id: str,
+    user_id: str,
+) -> ChatMessage | None:
+    result = await db.execute(
+        select(ChatMessage).where(
+            ChatMessage.id == message_id,
+            ChatMessage.user_id == user_id,
+        )
+    )
+
+    return result.scalar_one_or_none()

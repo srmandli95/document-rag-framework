@@ -12,6 +12,8 @@ from app.ingestion.embedding_indexing_service import embed_document_chunks
 from app.ingestion.extraction_service import extract_and_store_document_text
 from app.models.user import User
 from app.schemas.document_schema import (
+    DocumentChunkDetailResponse,
+    DocumentChunkListResponse,
     DocumentChunkingResponse,
     DocumentDeleteResponse,
     DocumentDetailResponse,
@@ -23,6 +25,10 @@ from app.schemas.document_schema import (
     DocumentProcessingJobListResponse,
     DocumentProcessingJobResponse,
     DocumentUploadResponse,
+)
+from app.services.document_chunk_service import (
+    get_chunk_by_id,
+    get_chunks_by_document_for_user,
 )
 from app.services.document_service import (
     create_document_record,
@@ -164,6 +170,22 @@ def _to_processing_job_response(job) -> DocumentProcessingJobResponse:
         completed_at=job.completed_at,
         created_at=job.created_at,
         updated_at=job.updated_at,
+    )
+
+
+def _to_chunk_detail_response(chunk) -> DocumentChunkDetailResponse:
+    return DocumentChunkDetailResponse(
+        chunk_id=chunk.id,
+        document_id=chunk.document_id,
+        user_id=chunk.user_id,
+        chunk_text=chunk.chunk_text,
+        chunk_index=chunk.chunk_index,
+        token_count=chunk.token_count,
+        page_number=chunk.page_number,
+        section_title=chunk.section_title,
+        status=chunk.status,
+        created_at=chunk.created_at,
+        updated_at=chunk.updated_at,
     )
 
 
@@ -355,6 +377,26 @@ def get_processing_job_detail(
     return _to_processing_job_response(job)
 
 
+@router.get(
+    "/chunks/{chunk_id}",
+    response_model=DocumentChunkDetailResponse,
+)
+def get_document_chunk_detail(
+    chunk_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DocumentChunkDetailResponse:
+    chunk = get_chunk_by_id(db, chunk_id, str(current_user.id))
+
+    if chunk is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document chunk not found",
+        )
+
+    return _to_chunk_detail_response(chunk)
+
+
 @router.get("/{document_id}", response_model=DocumentDetailResponse)
 def get_document(
     document_id: str,
@@ -378,6 +420,31 @@ def get_document(
     return DocumentDetailResponse(
         **metadata.model_dump(),
         message="Document found",
+    )
+
+
+@router.get(
+    "/{document_id}/chunks",
+    response_model=DocumentChunkListResponse,
+)
+def list_document_chunks(
+    document_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DocumentChunkListResponse:
+    authenticated_user_id = str(current_user.id)
+    _get_owned_document_or_404(db, document_id, authenticated_user_id)
+
+    chunks = get_chunks_by_document_for_user(
+        db=db,
+        document_id=document_id,
+        user_id=authenticated_user_id,
+    )
+
+    return DocumentChunkListResponse(
+        document_id=document_id,
+        user_id=authenticated_user_id,
+        chunks=[_to_chunk_detail_response(chunk) for chunk in chunks],
     )
 
 

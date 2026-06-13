@@ -4,10 +4,13 @@ from services.api_client import (
     APIClientError,
     ask_question,
     delete_document,
+    get_chunk_detail,
     get_current_user,
     get_google_login_url,
     get_health_status,
     get_processing_job,
+    get_message_evidence,
+    list_document_chunks,
     list_documents,
     list_processing_jobs,
     login_user,
@@ -72,6 +75,13 @@ def _reset_document_filters() -> None:
     cl.user_session.set("document_filter_ready_only", False)
 
 
+def _reset_last_answer_evidence() -> None:
+    cl.user_session.set("last_message_id", None)
+    cl.user_session.set("last_citations", [])
+    cl.user_session.set("last_answer_evidence", [])
+    cl.user_session.set("last_evidence_chunk_count", 0)
+
+
 def _get_document_filters() -> dict:
     return {
         "status": cl.user_session.get("document_filter_status"),
@@ -124,6 +134,7 @@ def _store_auth_session(auth_response: dict) -> None:
 
     # New authenticated user context should start a new chat session.
     cl.user_session.set("session_id", None)
+    _reset_last_answer_evidence()
     _reset_document_filters()
 
 
@@ -134,6 +145,7 @@ def _clear_auth_session() -> None:
     cl.user_session.set("email", None)
     cl.user_session.set("auth_provider", None)
     cl.user_session.set("session_id", None)
+    _reset_last_answer_evidence()
     _reset_document_filters()
 
 
@@ -375,10 +387,18 @@ def _document_filter_actions() -> list[cl.Action]:
 
 
 def _source_actions(citations: list[dict]) -> list[cl.Action]:
+    actions = []
+
+    for index, citation in enumerate(citations, start=1):
+        chunk_id = citation.get("chunk_id")
+        if chunk_id:
+            actions.append(
+                _action("view_chunk_action", str(chunk_id), f"View Source {index}")
+            )
+
     for citation in citations:
         document_id = citation.get("document_id")
         category = citation.get("category")
-        actions = []
 
         if document_id:
             actions.append(_action("view_jobs_action", str(document_id), "View Document Jobs"))
@@ -387,9 +407,47 @@ def _source_actions(citations: list[dict]) -> list[cl.Action]:
                 _action("filter_source_category_action", str(category), "Filter by Category")
             )
         actions.append(_action("filter_ready_action", "ready", "Show Ready Documents"))
-        return actions
+        break
 
-    return []
+    return actions
+
+
+def _chunk_action(chunk_id: str, label: str = "View Chunk") -> cl.Action:
+    return _action("view_chunk_action", chunk_id, label)
+
+
+def _safe_code_block(text: str) -> str:
+    longest_run = 0
+    current_run = 0
+
+    for character in text:
+        if character == "`":
+            current_run += 1
+            longest_run = max(longest_run, current_run)
+        else:
+            current_run = 0
+
+    fence = "`" * max(3, longest_run + 1)
+    return f"{fence}text\n{text}\n{fence}"
+
+
+def _format_chunk_detail(chunk: dict) -> str:
+    chunk_text = str(chunk.get("chunk_text") or "")
+    return "\n".join(
+        [
+            "## Source Chunk",
+            f"- Document ID: `{chunk.get('document_id') or 'N/A'}`",
+            f"- Chunk ID: `{chunk.get('chunk_id') or 'N/A'}`",
+            f"- Section: `{chunk.get('section_title') or 'N/A'}`",
+            f"- Page: `{chunk.get('page_number') if chunk.get('page_number') is not None else 'N/A'}`",
+            f"- Chunk Index: `{chunk.get('chunk_index') if chunk.get('chunk_index') is not None else 'N/A'}`",
+            f"- Token Count: `{chunk.get('token_count') if chunk.get('token_count') is not None else 'N/A'}`",
+            f"- Status: `{chunk.get('status') or 'N/A'}`",
+            "",
+            "### Excerpt",
+            _safe_code_block(chunk_text),
+        ]
+    )
 
 
 def _new_chat_action() -> cl.Action:
@@ -808,6 +866,141 @@ async def handle_delete_command(message_text: str) -> None:
     await _handle_delete_document(parts[1].strip())
 
 
+async def _handle_source_chunk(chunk_id: str) -> None:
+    if not await _require_login():
+        return
+
+    try:
+        chunk = await get_chunk_detail(
+            chunk_id=chunk_id,
+            access_token=_get_access_token(),
+        )
+    except APIClientError as exc:
+        await cl.Message(content=f"Could not get source chunk: {exc}").send()
+        return
+
+    await cl.Message(content=_format_chunk_detail(chunk)).send()
+
+
+async def handle_source_command(message_text: str) -> None:
+    parts = message_text.strip().split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        await cl.Message(content="Usage: `/source <chunk_id>`").send()
+        return
+
+    await _handle_source_chunk(parts[1].strip())
+
+
+async def handle_chunks_command(message_text: str) -> None:
+    if not await _require_login():
+        return
+
+    parts = message_text.strip().split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        await cl.Message(content="Usage: `/chunks <document_id>`").send()
+        return
+
+    document_id = parts[1].strip()
+
+    try:
+        response = await list_document_chunks(
+            document_id=document_id,
+            access_token=_get_access_token(),
+        )
+    except APIClientError as exc:
+        await cl.Message(content=f"Could not list document chunks: {exc}").send()
+        return
+
+    chunks = response.get("chunks") or []
+    if not chunks:
+        await cl.Message(content=f"No chunks found for document `{document_id}`.").send()
+        return
+
+    await cl.Message(
+        content=f"Document `{document_id}` has `{len(chunks)}` source chunks."
+    ).send()
+
+    for chunk in chunks:
+        chunk_id = chunk.get("chunk_id")
+        page = chunk.get("page_number")
+        chunk_index = chunk.get("chunk_index")
+        token_count = chunk.get("token_count")
+        lines = [
+            f"## Chunk `{chunk_index if chunk_index is not None else 'N/A'}`",
+            f"- Chunk ID: `{chunk_id or 'N/A'}`",
+            f"- Section: `{chunk.get('section_title') or 'N/A'}`",
+            f"- Page: `{page if page is not None else 'N/A'}`",
+            f"- Token Count: `{token_count if token_count is not None else 'N/A'}`",
+        ]
+        actions = [_chunk_action(str(chunk_id))] if chunk_id else []
+        await cl.Message(content="\n".join(lines), actions=actions).send()
+
+
+async def handle_evidence_command(message_text: str) -> None:
+    if not await _require_login():
+        return
+
+    parts = message_text.strip().split(maxsplit=1)
+    message_id = parts[1].strip() if len(parts) > 1 else cl.user_session.get("last_message_id")
+
+    if not message_id:
+        await cl.Message(content="No recent answer found. Ask a question first.").send()
+        return
+
+    try:
+        evidence = await get_message_evidence(
+            message_id=str(message_id),
+            access_token=_get_access_token(),
+        )
+    except APIClientError as exc:
+        await cl.Message(content=f"Could not get message evidence: {exc}").send()
+        return
+
+    answer = str(evidence.get("answer") or "")
+    answer_summary = answer[:500] + ("..." if len(answer) > 500 else "")
+    citations = evidence.get("citations") or []
+    retrieved_chunks = evidence.get("retrieved_chunks") or []
+    lines = [
+        "## Answer Evidence",
+        f"- Message ID: `{evidence.get('message_id') or message_id}`",
+        f"- Session ID: `{evidence.get('session_id') or 'N/A'}`",
+        f"- Evidence Chunk Count: `{evidence.get('evidence_chunk_count') or 0}`",
+        "",
+        "### Question",
+        str(evidence.get("question") or "N/A"),
+        "",
+        "### Answer Summary",
+        answer_summary or "N/A",
+    ]
+
+    citation_text = _format_citations({"citations": citations})
+    if citation_text:
+        lines.extend(["", citation_text])
+
+    if retrieved_chunks:
+        lines.extend(["", "## Retrieved Chunks"])
+        for index, chunk in enumerate(retrieved_chunks, start=1):
+            chunk_id = chunk.get("chunk_id") or chunk.get("id")
+            lines.append(
+                f"- {index}. Chunk `{chunk_id or 'N/A'}`, "
+                f"document `{chunk.get('document_id') or 'N/A'}`, "
+                f"page `{chunk.get('page_number') if chunk.get('page_number') is not None else 'N/A'}`"
+            )
+
+    actions = _source_actions(citations)
+    known_chunk_ids = {
+        str(citation.get("chunk_id"))
+        for citation in citations
+        if citation.get("chunk_id")
+    }
+    for index, chunk in enumerate(retrieved_chunks, start=1):
+        chunk_id = chunk.get("chunk_id") or chunk.get("id")
+        if chunk_id and str(chunk_id) not in known_chunk_ids:
+            actions.append(_chunk_action(str(chunk_id), f"View Evidence {index}"))
+
+    await cl.Message(content="\n".join(lines), actions=actions).send()
+
+
 async def handle_categories_command() -> None:
     lines = ["Supported categories:"]
 
@@ -1088,6 +1281,11 @@ async def handle_help_command() -> None:
             "Chat:\n"
             "- Ask a normal question\n"
             "- `/new`\n\n"
+            "Evidence:\n"
+            "- `/source <chunk_id>` - view cited source chunk text\n"
+            "- `/chunks <document_id>` - list chunks for a document\n"
+            "- `/evidence [message_id]` - inspect evidence for the latest or specified answer\n"
+            "- Citation buttons can also open source chunks.\n\n"
             "General:\n"
             "- `/help`"
         ),
@@ -1097,6 +1295,7 @@ async def handle_help_command() -> None:
 
 async def handle_new_command() -> None:
     cl.user_session.set("session_id", None)
+    _reset_last_answer_evidence()
 
     await cl.Message(
         content="Started a new chat session. Ask your next question when ready."
@@ -1122,6 +1321,14 @@ async def handle_question(message_text: str) -> None:
     returned_session_id = response.get("session_id")
     if returned_session_id:
         cl.user_session.set("session_id", returned_session_id)
+
+    cl.user_session.set("last_message_id", response.get("message_id"))
+    cl.user_session.set("last_citations", response.get("citations") or [])
+    cl.user_session.set("last_answer_evidence", response.get("evidence_chunks") or [])
+    cl.user_session.set(
+        "last_evidence_chunk_count",
+        response.get("evidence_chunk_count") or 0,
+    )
 
     answer = response.get("answer") or response.get("final_answer") or "No answer returned."
     metadata = _format_response_metadata(response)
@@ -1199,6 +1406,16 @@ async def on_view_job_detail_action(action: cl.Action) -> None:
         return
 
     await _handle_job_detail(job_id)
+
+
+@cl.action_callback("view_chunk_action")
+async def on_view_chunk_action(action: cl.Action) -> None:
+    chunk_id = _get_action_value(action)
+    if not chunk_id:
+        await _send_missing_action_value("chunk ID")
+        return
+
+    await _handle_source_chunk(chunk_id)
 
 
 @cl.action_callback("refresh_documents_action")
@@ -1308,6 +1525,18 @@ async def main(message: cl.Message) -> None:
 
     if normalized.startswith("/delete "):
         await handle_delete_command(message_text)
+        return
+
+    if normalized == "/source" or normalized.startswith("/source "):
+        await handle_source_command(message_text)
+        return
+
+    if normalized == "/chunks" or normalized.startswith("/chunks "):
+        await handle_chunks_command(message_text)
+        return
+
+    if normalized == "/evidence" or normalized.startswith("/evidence "):
+        await handle_evidence_command(message_text)
         return
 
     if normalized == "/categories":

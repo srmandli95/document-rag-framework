@@ -39,6 +39,32 @@ def get_chunks_by_document(
     document_id: str,
     user_id: str,
 ) -> list[DocumentChunk]:
+    return get_chunks_by_document_for_user(
+        db=db,
+        document_id=document_id,
+        user_id=user_id,
+    )
+
+
+def get_chunk_by_id(
+    db: Session,
+    chunk_id: str,
+    user_id: str,
+) -> DocumentChunk | None:
+    return (
+        db.query(DocumentChunk)
+        .filter(DocumentChunk.id == chunk_id)
+        .filter(DocumentChunk.user_id == user_id)
+        .filter(DocumentChunk.status != "deleted")
+        .first()
+    )
+
+
+def get_chunks_by_document_for_user(
+    db: Session,
+    document_id: str,
+    user_id: str,
+) -> list[DocumentChunk]:
     return (
         db.query(DocumentChunk)
         .filter(DocumentChunk.document_id == document_id)

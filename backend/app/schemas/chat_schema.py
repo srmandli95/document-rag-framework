@@ -70,6 +70,18 @@ class ChatMessageResponse(BaseModel):
     created_at: datetime
 
 
+class ChatMessageEvidenceResponse(BaseModel):
+    message_id: str
+    session_id: str
+    user_id: str
+    question: str
+    answer: str | None = None
+    citations: list[dict[str, Any]] = Field(default_factory=list)
+    retrieved_chunks: list[dict[str, Any]] = Field(default_factory=list)
+    evidence_chunk_count: int = 0
+    created_at: datetime
+
+
 class ChatSessionListResponse(BaseModel):
     user_id: str
     sessions: list[ChatSessionResponse]
