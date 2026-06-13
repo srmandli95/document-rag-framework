@@ -7,6 +7,10 @@ from app.models.user import User
 from app.retrieval.bm25_retriever import bm25_search
 from app.retrieval.hybrid_retriever import hybrid_search
 from app.retrieval.retrieval_diagnostics import diagnose_retrieval
+from app.retrieval.retrieval_settings import (
+    RetrievalSettings,
+    validate_retrieval_settings,
+)
 from app.retrieval.vector_retriever import vector_search
 from app.reranking.reranking_service import rerank_hybrid_results
 from app.schemas.retrieval_schema import (
@@ -34,31 +38,6 @@ def _validate_query(query: str | None) -> str:
         )
 
     return query.strip()
-
-
-def _validate_retrieval_weights(
-    vector_weight: float,
-    bm25_weight: float,
-    *,
-    both_zero_message: str,
-) -> None:
-    if vector_weight < 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="vector_weight must be non-negative",
-        )
-
-    if bm25_weight < 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="bm25_weight must be non-negative",
-        )
-
-    if vector_weight == 0 and bm25_weight == 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=both_zero_message,
-        )
 
 
 def _safe_positive_top_k(value: int, default: int, maximum: int) -> int:
@@ -165,26 +144,25 @@ def search_hybrid_chunks(
     user_id = str(current_user.id)
     query = _validate_query(request.query)
 
-    _validate_retrieval_weights(
-        vector_weight=request.vector_weight,
-        bm25_weight=request.bm25_weight,
-        both_zero_message="At least one retrieval weight must be greater than 0",
-    )
-
-    top_k = _safe_positive_top_k(request.top_k, default=5, maximum=20)
-    vector_top_k = _safe_positive_top_k(request.vector_top_k, default=20, maximum=50)
-    bm25_top_k = _safe_positive_top_k(request.bm25_top_k, default=20, maximum=50)
-
     try:
+        retrieval_settings = validate_retrieval_settings(
+            RetrievalSettings(
+                top_k=request.top_k,
+                vector_top_k=request.vector_top_k,
+                bm25_top_k=request.bm25_top_k,
+                vector_weight=request.vector_weight,
+                bm25_weight=request.bm25_weight,
+            )
+        )
         results = hybrid_search(
             db=db,
             user_id=user_id,
             query=query,
-            top_k=top_k,
-            vector_top_k=vector_top_k,
-            bm25_top_k=bm25_top_k,
-            vector_weight=request.vector_weight,
-            bm25_weight=request.bm25_weight,
+            top_k=retrieval_settings.top_k,
+            vector_top_k=retrieval_settings.vector_top_k,
+            bm25_top_k=retrieval_settings.bm25_top_k,
+            vector_weight=retrieval_settings.vector_weight,
+            bm25_weight=retrieval_settings.bm25_weight,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -195,7 +173,7 @@ def search_hybrid_chunks(
     return HybridSearchResponse(
         user_id=user_id,
         query=query,
-        top_k=top_k,
+        top_k=retrieval_settings.top_k,
         result_count=len(results),
         results=results,
     )
@@ -218,40 +196,27 @@ def search_reranked_chunks(
     user_id = str(current_user.id)
     query = _validate_query(request.query)
 
-    _validate_retrieval_weights(
-        vector_weight=request.vector_weight,
-        bm25_weight=request.bm25_weight,
-        both_zero_message="vector_weight and bm25_weight cannot both be 0",
-    )
-
-    safe_top_k = _safe_positive_top_k(request.top_k, default=5, maximum=10)
-    safe_hybrid_top_k = _safe_positive_top_k(
-        request.hybrid_top_k,
-        default=20,
-        maximum=50,
-    )
-    safe_vector_top_k = _safe_positive_top_k(
-        request.vector_top_k,
-        default=20,
-        maximum=50,
-    )
-    safe_bm25_top_k = _safe_positive_top_k(
-        request.bm25_top_k,
-        default=20,
-        maximum=50,
-    )
-
     try:
+        retrieval_settings = validate_retrieval_settings(
+            RetrievalSettings(
+                hybrid_top_k=request.hybrid_top_k,
+                vector_top_k=request.vector_top_k,
+                bm25_top_k=request.bm25_top_k,
+                rerank_top_k=request.top_k,
+                vector_weight=request.vector_weight,
+                bm25_weight=request.bm25_weight,
+            )
+        )
         results = rerank_hybrid_results(
             db=db,
             user_id=user_id,
             query=query,
-            top_k=safe_top_k,
-            hybrid_top_k=safe_hybrid_top_k,
-            vector_top_k=safe_vector_top_k,
-            bm25_top_k=safe_bm25_top_k,
-            vector_weight=request.vector_weight,
-            bm25_weight=request.bm25_weight,
+            top_k=retrieval_settings.rerank_top_k,
+            hybrid_top_k=retrieval_settings.hybrid_top_k,
+            vector_top_k=retrieval_settings.vector_top_k,
+            bm25_top_k=retrieval_settings.bm25_top_k,
+            vector_weight=retrieval_settings.vector_weight,
+            bm25_weight=retrieval_settings.bm25_weight,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -262,7 +227,7 @@ def search_reranked_chunks(
     return RerankSearchResponse(
         user_id=user_id,
         query=query,
-        top_k=safe_top_k,
+        top_k=retrieval_settings.rerank_top_k,
         result_count=len(results),
         results=results,
     )
@@ -276,20 +241,27 @@ def diagnose_retrieval_endpoint(
 ) -> RetrievalDiagnosticsResponse:
     user_id = str(current_user.id)
     query = _validate_query(request.query)
-    vector_top_k = _safe_positive_top_k(request.vector_top_k, default=10, maximum=20)
-    bm25_top_k = _safe_positive_top_k(request.bm25_top_k, default=10, maximum=20)
-    hybrid_top_k = _safe_positive_top_k(request.hybrid_top_k, default=10, maximum=20)
-    rerank_top_k = _safe_positive_top_k(request.rerank_top_k, default=5, maximum=10)
-
     try:
+        retrieval_settings = validate_retrieval_settings(
+            RetrievalSettings(
+                vector_top_k=request.vector_top_k,
+                bm25_top_k=request.bm25_top_k,
+                hybrid_top_k=request.hybrid_top_k,
+                rerank_top_k=request.rerank_top_k,
+                vector_weight=request.vector_weight,
+                bm25_weight=request.bm25_weight,
+            )
+        )
         diagnostics = diagnose_retrieval(
             db=db,
             user_id=user_id,
             query=query,
-            vector_top_k=vector_top_k,
-            bm25_top_k=bm25_top_k,
-            hybrid_top_k=hybrid_top_k,
-            rerank_top_k=rerank_top_k,
+            vector_top_k=retrieval_settings.vector_top_k,
+            bm25_top_k=retrieval_settings.bm25_top_k,
+            hybrid_top_k=retrieval_settings.hybrid_top_k,
+            rerank_top_k=retrieval_settings.rerank_top_k,
+            vector_weight=retrieval_settings.vector_weight,
+            bm25_weight=retrieval_settings.bm25_weight,
         )
     except ValueError as exc:
         raise HTTPException(

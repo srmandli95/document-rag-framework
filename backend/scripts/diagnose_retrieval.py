@@ -18,6 +18,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bm25-top-k", type=int, default=10)
     parser.add_argument("--hybrid-top-k", type=int, default=10)
     parser.add_argument("--rerank-top-k", type=int, default=5)
+    parser.add_argument("--vector-weight", type=float, default=0.6)
+    parser.add_argument("--bm25-weight", type=float, default=0.4)
     parser.add_argument("--output-json", help="Optional diagnostics JSON output path.")
     return parser.parse_args()
 
@@ -54,6 +56,9 @@ def _print_diagnostics(diagnostics: dict[str, Any]) -> None:
     summary = diagnostics["summary"]
     print("Retrieval Diagnostics")
     print(f"Query: {diagnostics['query']}")
+    print("\nSettings:")
+    for name, value in diagnostics["settings"].items():
+        print(f"- {name}: {value}")
     print("\nCounts:")
     print(f"- Vector: {summary['vector_count']}")
     print(f"- BM25: {summary['bm25_count']}")
@@ -87,11 +92,6 @@ def _validate_args(args: argparse.Namespace) -> None:
     if not args.query or not args.query.strip():
         raise ValueError("query is required")
 
-    for name in ("vector_top_k", "bm25_top_k", "hybrid_top_k", "rerank_top_k"):
-        if getattr(args, name) <= 0:
-            raise ValueError(f"{name} must be greater than 0")
-
-
 def main() -> int:
     args = parse_args()
     try:
@@ -106,6 +106,8 @@ def main() -> int:
                 bm25_top_k=args.bm25_top_k,
                 hybrid_top_k=args.hybrid_top_k,
                 rerank_top_k=args.rerank_top_k,
+                vector_weight=args.vector_weight,
+                bm25_weight=args.bm25_weight,
             )
         finally:
             db.close()

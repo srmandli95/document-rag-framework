@@ -77,18 +77,23 @@ def retrieve_and_rerank_node(state: RAGState) -> RAGState:
     hybrid_top_k = state.get("hybrid_top_k", 20)
     vector_top_k = state.get("vector_top_k", 20)
     bm25_top_k = state.get("bm25_top_k", 20)
+    rerank_top_k = state.get("rerank_top_k", 8)
+    vector_weight = state.get("vector_weight", 0.6)
+    bm25_weight = state.get("bm25_weight", 0.4)
 
     evidence_chunks = rerank_hybrid_results(
         db=db,
         user_id=user_id,
         query=retrieval_query,
-        top_k=top_k,
+        top_k=rerank_top_k,
         hybrid_top_k=hybrid_top_k,
         vector_top_k=vector_top_k,
         bm25_top_k=bm25_top_k,
+        vector_weight=vector_weight,
+        bm25_weight=bm25_weight,
     )
 
-    state["evidence_chunks"] = evidence_chunks
+    state["evidence_chunks"] = evidence_chunks[:top_k]
 
     return state
 

@@ -54,8 +54,8 @@ def bm25_search(
     if top_k <= 0:
         top_k = 5
 
-    if top_k > 20:
-        top_k = 20
+    if top_k > 50:
+        top_k = 50
 
     clean_user_id = user_id.strip()
     clean_query = query.strip()

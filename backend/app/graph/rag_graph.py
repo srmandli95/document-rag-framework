@@ -12,6 +12,10 @@ from app.graph.nodes import (
     validate_citations_node,
 )
 from app.graph.state import RAGState
+from app.retrieval.retrieval_settings import (
+    RetrievalSettings,
+    validate_retrieval_settings,
+)
 
 
 def build_rag_graph():
@@ -45,8 +49,24 @@ def run_rag_workflow(
     hybrid_top_k: int = 20,
     vector_top_k: int = 20,
     bm25_top_k: int = 20,
+    rerank_top_k: int = 8,
+    vector_weight: float = 0.6,
+    bm25_weight: float = 0.4,
     min_reranker_score: float | None = None,
 ) -> dict[str, Any]:
+    retrieval_settings = validate_retrieval_settings(
+        RetrievalSettings(
+            top_k=top_k,
+            hybrid_top_k=hybrid_top_k,
+            vector_top_k=vector_top_k,
+            bm25_top_k=bm25_top_k,
+            rerank_top_k=rerank_top_k,
+            vector_weight=vector_weight,
+            bm25_weight=bm25_weight,
+            min_reranker_score=min_reranker_score,
+        ),
+        require_final_top_k_within_rerank=True,
+    )
     graph = build_rag_graph()
 
     initial_state: RAGState = {
@@ -54,11 +74,14 @@ def run_rag_workflow(
         "user_id": user_id,
         "question": question,
         "rewritten_question": None,
-        "top_k": top_k,
-        "hybrid_top_k": hybrid_top_k,
-        "vector_top_k": vector_top_k,
-        "bm25_top_k": bm25_top_k,
-        "min_reranker_score": min_reranker_score,
+        "top_k": retrieval_settings.top_k,
+        "hybrid_top_k": retrieval_settings.hybrid_top_k,
+        "vector_top_k": retrieval_settings.vector_top_k,
+        "bm25_top_k": retrieval_settings.bm25_top_k,
+        "rerank_top_k": retrieval_settings.rerank_top_k,
+        "vector_weight": retrieval_settings.vector_weight,
+        "bm25_weight": retrieval_settings.bm25_weight,
+        "min_reranker_score": retrieval_settings.min_reranker_score,
         "user_context": None,
         "evidence_chunks": [],
         "evidence_sufficient": None,

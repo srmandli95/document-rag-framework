@@ -1,8 +1,13 @@
+from dataclasses import asdict
 from typing import Any
 
 from app.reranking.reranking_service import rerank_hybrid_results
 from app.retrieval.bm25_retriever import bm25_search
 from app.retrieval.hybrid_retriever import hybrid_search
+from app.retrieval.retrieval_settings import (
+    RetrievalSettings,
+    validate_retrieval_settings,
+)
 from app.retrieval.vector_retriever import vector_search
 
 
@@ -114,28 +119,31 @@ def diagnose_retrieval(
     bm25_top_k: int = 10,
     hybrid_top_k: int = 10,
     rerank_top_k: int = 5,
+    vector_weight: float = 0.6,
+    bm25_weight: float = 0.4,
 ) -> dict[str, Any]:
     if not user_id or not user_id.strip():
         raise ValueError("user_id is required")
     if not query or not query.strip():
         raise ValueError("query is required")
 
-    limits = {
-        "vector_top_k": vector_top_k,
-        "bm25_top_k": bm25_top_k,
-        "hybrid_top_k": hybrid_top_k,
-        "rerank_top_k": rerank_top_k,
-    }
-    for name, value in limits.items():
-        if value <= 0:
-            raise ValueError(f"{name} must be greater than 0")
+    retrieval_settings = validate_retrieval_settings(
+        RetrievalSettings(
+            vector_top_k=vector_top_k,
+            bm25_top_k=bm25_top_k,
+            hybrid_top_k=hybrid_top_k,
+            rerank_top_k=rerank_top_k,
+            vector_weight=vector_weight,
+            bm25_weight=bm25_weight,
+        )
+    )
 
     clean_user_id = user_id.strip()
     clean_query = query.strip()
-    safe_vector_top_k = min(vector_top_k, 20)
-    safe_bm25_top_k = min(bm25_top_k, 20)
-    safe_hybrid_top_k = min(hybrid_top_k, 20)
-    safe_rerank_top_k = min(rerank_top_k, 10)
+    safe_vector_top_k = retrieval_settings.vector_top_k
+    safe_bm25_top_k = retrieval_settings.bm25_top_k
+    safe_hybrid_top_k = retrieval_settings.hybrid_top_k
+    safe_rerank_top_k = retrieval_settings.rerank_top_k
 
     vector_results = vector_search(
         db=db,
@@ -156,6 +164,8 @@ def diagnose_retrieval(
         top_k=safe_hybrid_top_k,
         vector_top_k=safe_vector_top_k,
         bm25_top_k=safe_bm25_top_k,
+        vector_weight=retrieval_settings.vector_weight,
+        bm25_weight=retrieval_settings.bm25_weight,
     )
     reranked_results = rerank_hybrid_results(
         db=db,
@@ -165,6 +175,8 @@ def diagnose_retrieval(
         hybrid_top_k=safe_hybrid_top_k,
         vector_top_k=safe_vector_top_k,
         bm25_top_k=safe_bm25_top_k,
+        vector_weight=retrieval_settings.vector_weight,
+        bm25_weight=retrieval_settings.bm25_weight,
     )
 
     return {
@@ -185,5 +197,18 @@ def diagnose_retrieval(
                 hybrid_results,
                 reranked_results,
             ),
+        },
+        "settings": {
+            key: value
+            for key, value in asdict(retrieval_settings).items()
+            if key
+            in {
+                "vector_top_k",
+                "bm25_top_k",
+                "hybrid_top_k",
+                "rerank_top_k",
+                "vector_weight",
+                "bm25_weight",
+            }
         },
     }

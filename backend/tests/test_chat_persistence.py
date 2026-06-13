@@ -5,11 +5,13 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
+from app.auth.dependencies import get_current_user
 from app.db.database import get_async_db, get_db
 from app.main import app
 from app.models.chat_message import ChatMessage
 from app.models.chat_session import ChatSession
 from app.services import chat_service
+from conftest import override_get_current_user
 
 
 class FakeScalarResult:
@@ -630,6 +632,7 @@ def test_chat_ask_creates_session_when_no_session_id(monkeypatch):
 
     app.dependency_overrides[get_async_db] = override_async_db()
     app.dependency_overrides[get_db] = override_sync_db()
+    app.dependency_overrides[get_current_user] = override_get_current_user("user-1")
 
     client = TestClient(app)
     response = client.post(
@@ -815,7 +818,7 @@ def test_chat_ask_returns_400_when_question_missing():
     assert response.status_code == 400
 
 
-def test_chat_ask_caps_retrieval_limits(monkeypatch):
+def test_chat_ask_rejects_retrieval_limits_above_maximum(monkeypatch):
     from app.api import chat_routes
 
     fake_session = SimpleNamespace(
@@ -890,7 +893,73 @@ def test_chat_ask_caps_retrieval_limits(monkeypatch):
 
     app.dependency_overrides.clear()
 
+    assert response.status_code == 400
+    assert response.json()["detail"] == "top_k must be between 1 and 20"
+
+
+def test_chat_ask_passes_normalized_custom_retrieval_settings(monkeypatch):
+    from app.api import chat_routes
+
+    fake_session = SimpleNamespace(
+        id="session-1",
+        user_id="user-1",
+        title="Question",
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    fake_message = SimpleNamespace(id="message-1")
+    captured = {}
+
+    async def fake_get_or_create_chat_session(db, user_id, session_id, question):
+        return fake_session
+
+    async def fake_create_chat_message(db, session_id, user_id, question, answer_response):
+        return fake_message
+
+    def fake_run_rag_workflow(**kwargs):
+        captured.update(kwargs)
+        return {
+            "user_id": "user-1",
+            "question": "Question",
+            "answer": "Fake answer",
+            "citations": [],
+            "evidence_chunks": [],
+            "status": "answered",
+        }
+
+    monkeypatch.setattr(
+        chat_routes.chat_service,
+        "get_or_create_chat_session",
+        fake_get_or_create_chat_session,
+    )
+    monkeypatch.setattr(
+        chat_routes.chat_service,
+        "create_chat_message",
+        fake_create_chat_message,
+    )
+    monkeypatch.setattr(chat_routes, "run_rag_workflow", fake_run_rag_workflow)
+
+    app.dependency_overrides[get_async_db] = override_async_db()
+    app.dependency_overrides[get_db] = override_sync_db()
+    app.dependency_overrides[get_current_user] = override_get_current_user("user-1")
+
+    response = TestClient(app).post(
+        "/chat/ask",
+        json={
+            "question": "Question",
+            "top_k": 4,
+            "rerank_top_k": 9,
+            "vector_weight": 7,
+            "bm25_weight": 3,
+        },
+    )
+    app.dependency_overrides.clear()
+
     assert response.status_code == 200
+    assert captured["top_k"] == 4
+    assert captured["rerank_top_k"] == 9
+    assert captured["vector_weight"] == 0.7
+    assert captured["bm25_weight"] == 0.3
 
 
 def test_chat_ask_returns_400_when_rag_workflow_raises_value_error(monkeypatch):

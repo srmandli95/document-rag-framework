@@ -8,6 +8,10 @@ from app.auth.dependencies import get_current_user
 from app.db.database import get_async_db, get_db
 from app.graph.rag_graph import run_rag_workflow
 from app.models.user import User
+from app.retrieval.retrieval_settings import (
+    RetrievalSettings,
+    validate_retrieval_settings,
+)
 from app.schemas.chat_schema import (
     AskRequest,
     AskResponse,
@@ -79,10 +83,25 @@ async def ask_question(
     user_id = str(current_user.id)
     question = request.question.strip()
 
-    safe_top_k = min(request.top_k, 8)
-    safe_hybrid_top_k = min(request.hybrid_top_k, 50)
-    safe_vector_top_k = min(request.vector_top_k, 50)
-    safe_bm25_top_k = min(request.bm25_top_k, 50)
+    try:
+        retrieval_settings = validate_retrieval_settings(
+            RetrievalSettings(
+                top_k=request.top_k,
+                hybrid_top_k=request.hybrid_top_k,
+                vector_top_k=request.vector_top_k,
+                bm25_top_k=request.bm25_top_k,
+                rerank_top_k=request.rerank_top_k,
+                vector_weight=request.vector_weight,
+                bm25_weight=request.bm25_weight,
+                min_reranker_score=request.min_reranker_score,
+            ),
+            require_final_top_k_within_rerank=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
     try:
         chat_session = await chat_service.get_or_create_chat_session(
@@ -102,11 +121,14 @@ async def ask_question(
             db=db,
             user_id=user_id,
             question=question,
-            top_k=safe_top_k,
-            hybrid_top_k=safe_hybrid_top_k,
-            vector_top_k=safe_vector_top_k,
-            bm25_top_k=safe_bm25_top_k,
-            min_reranker_score=request.min_reranker_score,
+            top_k=retrieval_settings.top_k,
+            hybrid_top_k=retrieval_settings.hybrid_top_k,
+            vector_top_k=retrieval_settings.vector_top_k,
+            bm25_top_k=retrieval_settings.bm25_top_k,
+            rerank_top_k=retrieval_settings.rerank_top_k,
+            vector_weight=retrieval_settings.vector_weight,
+            bm25_weight=retrieval_settings.bm25_weight,
+            min_reranker_score=retrieval_settings.min_reranker_score,
         )
     except ValueError as exc:
         raise HTTPException(

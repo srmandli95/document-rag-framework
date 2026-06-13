@@ -59,11 +59,11 @@ class BM25SearchResponse(BaseModel):
 class HybridSearchRequest(BaseModel):
     user_id: str | None = None
     query: str
-    top_k: int = Field(default=5, ge=1)
-    vector_top_k: int = Field(default=20, ge=1)
-    bm25_top_k: int = Field(default=20, ge=1)
-    vector_weight: float = Field(default=0.6, ge=0)
-    bm25_weight: float = Field(default=0.4, ge=0)
+    top_k: int = 5
+    vector_top_k: int = 20
+    bm25_top_k: int = 20
+    vector_weight: float = 0.6
+    bm25_weight: float = 0.4
 
 
 class HybridSearchResult(BaseModel):
@@ -141,6 +141,17 @@ class RetrievalDiagnosticsRequest(BaseModel):
     bm25_top_k: int = 10
     hybrid_top_k: int = 10
     rerank_top_k: int = 5
+    vector_weight: float = 0.6
+    bm25_weight: float = 0.4
+
+
+class RetrievalDiagnosticsSettings(BaseModel):
+    vector_top_k: int
+    bm25_top_k: int
+    hybrid_top_k: int
+    rerank_top_k: int
+    vector_weight: float
+    bm25_weight: float
 
 
 class RetrievalDiagnosticsResult(BaseModel):
@@ -193,3 +204,4 @@ class RetrievalDiagnosticsResponse(BaseModel):
     reranked_results: list[RetrievalDiagnosticsResult]
     rank_changes: list[RetrievalRankChange]
     summary: RetrievalDiagnosticsSummary
+    settings: RetrievalDiagnosticsSettings

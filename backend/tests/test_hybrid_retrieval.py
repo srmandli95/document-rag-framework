@@ -87,6 +87,31 @@ def test_hybrid_search_merges_vector_only_results(monkeypatch):
     assert results[0]["retrieval_sources"] == ["vector"]
 
 
+def test_hybrid_search_passes_candidate_limits_up_to_50(monkeypatch):
+    captured = {}
+
+    def fake_vector_search(**kwargs):
+        captured["vector_top_k"] = kwargs["top_k"]
+        return []
+
+    def fake_bm25_search(**kwargs):
+        captured["bm25_top_k"] = kwargs["top_k"]
+        return []
+
+    monkeypatch.setattr(hybrid_retriever, "vector_search", fake_vector_search)
+    monkeypatch.setattr(hybrid_retriever, "bm25_search", fake_bm25_search)
+
+    hybrid_search(
+        db=FakeDB(),
+        user_id="user-1",
+        query="urgent care",
+        vector_top_k=50,
+        bm25_top_k=50,
+    )
+
+    assert captured == {"vector_top_k": 50, "bm25_top_k": 50}
+
+
 def test_hybrid_search_merges_bm25_only_results(monkeypatch):
     def fake_vector_search(db, user_id, query, top_k):
         return []
@@ -198,6 +223,27 @@ def test_hybrid_score_uses_vector_and_bm25_weights(monkeypatch):
     assert chunk_b["hybrid_score"] == 1.0
 
 
+def test_hybrid_search_normalizes_weights_before_scoring(monkeypatch):
+    monkeypatch.setattr(
+        hybrid_retriever,
+        "vector_search",
+        lambda **_: [
+            make_result("vector-only", "similarity_score", 0.9),
+        ],
+    )
+    monkeypatch.setattr(hybrid_retriever, "bm25_search", lambda **_: [])
+
+    results = hybrid_search(
+        db=FakeDB(),
+        user_id="user-1",
+        query="urgent care",
+        vector_weight=7,
+        bm25_weight=3,
+    )
+
+    assert results[0]["hybrid_score"] == 0.7
+
+
 def test_retrieval_sources_show_vector_bm25_or_both(monkeypatch):
     def fake_vector_search(db, user_id, query, top_k):
         return [
@@ -305,8 +351,8 @@ def test_hybrid_endpoint_empty_query_returns_400():
     assert response.status_code == 400
 
 
-def test_hybrid_endpoint_top_k_capped_at_20(monkeypatch):
-    """Hybrid search caps top_k at 20."""
+def test_hybrid_endpoint_rejects_top_k_above_20(monkeypatch):
+    """Hybrid search rejects top_k above the central limit."""
     setup_auth_overrides("test-user")
 
     captured = {}
@@ -330,8 +376,43 @@ def test_hybrid_endpoint_top_k_capped_at_20(monkeypatch):
         },
     )
 
+    assert response.status_code == 400
+    assert response.json()["detail"] == "top_k must be between 1 and 20"
+    assert "top_k" not in captured
+
+
+def test_hybrid_endpoint_normalizes_custom_weights(monkeypatch):
+    setup_auth_overrides("test-user")
+    captured = {}
+
+    def fake_hybrid_search(**kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(
+        "app.api.retrieval_routes.hybrid_search",
+        fake_hybrid_search,
+    )
+
+    response = client.post(
+        "/search/hybrid",
+        json={"query": "test", "vector_weight": 7, "bm25_weight": 3},
+    )
+
     assert response.status_code == 200
-    assert captured["top_k"] == 20
+    assert captured["vector_weight"] == 0.7
+    assert captured["bm25_weight"] == 0.3
+
+
+def test_hybrid_endpoint_rejects_both_zero_weights():
+    setup_auth_overrides("test-user")
+
+    response = client.post(
+        "/search/hybrid",
+        json={"query": "test", "vector_weight": 0, "bm25_weight": 0},
+    )
+
+    assert response.status_code == 400
 
 
 def test_hybrid_endpoint_no_results_returns_empty_list(monkeypatch):
