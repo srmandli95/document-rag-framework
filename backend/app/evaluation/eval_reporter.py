@@ -1,4 +1,5 @@
 import json
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +66,14 @@ def _escape_table_value(value: str) -> str:
     return value.replace("|", r"\|").replace("\n", " ")
 
 
+def _diagnostics_command(user_id: str, question: str) -> str:
+    inner_command = (
+        "PYTHONPATH=/app python scripts/diagnose_retrieval.py "
+        f"--user-id {shlex.quote(user_id)} --query {shlex.quote(question)}"
+    )
+    return f"docker compose exec backend sh -c {shlex.quote(inner_command)}"
+
+
 def generate_markdown_report(
     result: EvalRunResult,
     regression: EvalRegressionResult | None = None,
@@ -122,6 +131,10 @@ def generate_markdown_report(
             preview = _answer_preview(case.answer)
             if preview:
                 lines.append(f"- Answer Preview: {preview}")
+            if result.user_id:
+                lines.append(
+                    f"- Debug command: `{_diagnostics_command(result.user_id, case.question)}`"
+                )
 
     lines.extend(
         [

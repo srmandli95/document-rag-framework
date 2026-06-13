@@ -6,6 +6,7 @@ from app.db.database import get_db
 from app.models.user import User
 from app.retrieval.bm25_retriever import bm25_search
 from app.retrieval.hybrid_retriever import hybrid_search
+from app.retrieval.retrieval_diagnostics import diagnose_retrieval
 from app.retrieval.vector_retriever import vector_search
 from app.reranking.reranking_service import rerank_hybrid_results
 from app.schemas.retrieval_schema import (
@@ -15,6 +16,8 @@ from app.schemas.retrieval_schema import (
     HybridSearchResponse,
     RerankSearchRequest,
     RerankSearchResponse,
+    RetrievalDiagnosticsRequest,
+    RetrievalDiagnosticsResponse,
     VectorSearchRequest,
     VectorSearchResponse,
 )
@@ -263,3 +266,35 @@ def search_reranked_chunks(
         result_count=len(results),
         results=results,
     )
+
+
+@router.post("/diagnose", response_model=RetrievalDiagnosticsResponse)
+def diagnose_retrieval_endpoint(
+    request: RetrievalDiagnosticsRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RetrievalDiagnosticsResponse:
+    user_id = str(current_user.id)
+    query = _validate_query(request.query)
+    vector_top_k = _safe_positive_top_k(request.vector_top_k, default=10, maximum=20)
+    bm25_top_k = _safe_positive_top_k(request.bm25_top_k, default=10, maximum=20)
+    hybrid_top_k = _safe_positive_top_k(request.hybrid_top_k, default=10, maximum=20)
+    rerank_top_k = _safe_positive_top_k(request.rerank_top_k, default=5, maximum=10)
+
+    try:
+        diagnostics = diagnose_retrieval(
+            db=db,
+            user_id=user_id,
+            query=query,
+            vector_top_k=vector_top_k,
+            bm25_top_k=bm25_top_k,
+            hybrid_top_k=hybrid_top_k,
+            rerank_top_k=rerank_top_k,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return RetrievalDiagnosticsResponse.model_validate(diagnostics)
