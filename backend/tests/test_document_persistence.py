@@ -120,7 +120,7 @@ def fake_get_document_by_id(db, *, document_id, user_id):
     return document
 
 
-def fake_soft_delete_document(db, *, document_id, user_id):
+def fake_delete_document_completely(db, *, document_id, user_id):
     document = fake_get_document_by_id(
         db=db,
         document_id=document_id,
@@ -130,6 +130,7 @@ def fake_soft_delete_document(db, *, document_id, user_id):
     if document is None:
         return None
 
+    fake_documents.pop(document.id)
     document.status = "deleted"
 
     return document
@@ -137,6 +138,10 @@ def fake_soft_delete_document(db, *, document_id, user_id):
 
 def patch_document_db_functions(monkeypatch):
     fake_documents.clear()
+    monkeypatch.setattr(
+        "app.config.settings.settings.RAW_DOCUMENTS_DIR",
+        "/tmp/test_document_persistence_raw",
+    )
 
     monkeypatch.setattr(
         "app.api.document_routes.create_document_record",
@@ -154,8 +159,17 @@ def patch_document_db_functions(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "app.api.document_routes.soft_delete_document",
-        fake_soft_delete_document,
+        "app.api.document_routes.delete_document_completely",
+        fake_delete_document_completely,
+    )
+    monkeypatch.setattr(
+        "app.api.document_routes.create_processing_job",
+        lambda **kwargs: SimpleNamespace(
+            id="job-1", status="pending", current_step=None, error_message=None
+        ),
+    )
+    monkeypatch.setattr(
+        "app.api.document_routes._process_document_in_background", lambda *args: None
     )
 
 
@@ -191,7 +205,8 @@ def test_upload_valid_document_creates_fake_db_record(monkeypatch):
     assert data["category"] == "health_insurance"
     assert data["storage_provider"] == "local"
     assert data["status"] == "uploaded"
-    assert data["message"] == "Document uploaded and metadata saved successfully"
+    assert data["job_id"] == "job-1"
+    assert data["message"] == "Document uploaded and processing started"
 
     saved_file_path = Path(data["storage_path"])
     assert saved_file_path.exists()
@@ -295,7 +310,7 @@ def test_user_a_cannot_access_user_b_document(monkeypatch):
     assert response.status_code == 404
 
 
-def test_soft_delete_document(monkeypatch):
+def test_complete_delete_document(monkeypatch):
     patch_document_db_functions(monkeypatch)
 
     upload_response = client.post(
@@ -328,7 +343,7 @@ def test_soft_delete_document(monkeypatch):
     assert data["document_id"] == document_id
     assert data["user_id"] == "delete-user"
     assert data["status"] == "deleted"
-    assert data["message"] == "Document soft deleted successfully"
+    assert data["message"] == "Document deleted successfully"
 
 
 def test_deleted_document_does_not_appear_in_list(monkeypatch):
