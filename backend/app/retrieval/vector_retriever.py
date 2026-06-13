@@ -50,7 +50,7 @@ def vector_search(
         .filter(DocumentChunk.user_id == clean_user_id)
         .filter(DocumentChunk.status == "embedded")
         .filter(DocumentChunk.embedding.isnot(None))
-        .filter(Document.status != "deleted")
+        .filter(Document.status == "embedded")
         .order_by(distance_expr)
         .limit(top_k)
         .all()
