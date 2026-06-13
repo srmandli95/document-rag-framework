@@ -169,6 +169,8 @@ def test_diagnose_retrieval_calls_services_and_returns_summary(monkeypatch):
     assert calls["hybrid"]["bm25_top_k"] == 8
     assert calls["rerank"]["top_k"] == 4
     assert calls["rerank"]["hybrid_top_k"] == 9
+    assert diagnostics["settings"]["vector_weight"] == 0.6
+    assert diagnostics["settings"]["bm25_weight"] == 0.4
     assert diagnostics["summary"] == {
         "vector_count": 2,
         "bm25_count": 2,
@@ -182,7 +184,7 @@ def test_diagnose_retrieval_calls_services_and_returns_summary(monkeypatch):
     assert "chunk_text" not in diagnostics["vector_results"][0]
 
 
-def test_diagnose_retrieval_caps_top_k_before_calling_services(monkeypatch):
+def test_diagnose_retrieval_rejects_top_k_above_limits(monkeypatch):
     captured = {}
 
     def fake_search(**kwargs):
@@ -197,12 +199,12 @@ def test_diagnose_retrieval_caps_top_k_before_calling_services(monkeypatch):
         fake_search,
     )
 
-    diagnose_retrieval(FakeDB(), "user-1", "query", 99, 99, 99, 99)
+    import pytest
 
-    assert captured["calls"][0]["top_k"] == 20
-    assert captured["calls"][1]["top_k"] == 20
-    assert captured["calls"][2]["top_k"] == 20
-    assert captured["calls"][3]["top_k"] == 10
+    with pytest.raises(ValueError, match="vector_top_k must be between 1 and 50"):
+        diagnose_retrieval(FakeDB(), "user-1", "query", 99, 99, 99, 99)
+
+    assert "calls" not in captured
 
 
 def test_diagnose_endpoint_uses_authenticated_user_and_returns_slim_results(
@@ -229,6 +231,14 @@ def test_diagnose_endpoint_uses_authenticated_user_and_returns_slim_results(
                 "reranked_count": 0,
                 "overlap_vector_bm25": 0,
                 "overlap_hybrid_rerank": 0,
+            },
+            "settings": {
+                "vector_top_k": kwargs["vector_top_k"],
+                "bm25_top_k": kwargs["bm25_top_k"],
+                "hybrid_top_k": kwargs["hybrid_top_k"],
+                "rerank_top_k": kwargs["rerank_top_k"],
+                "vector_weight": kwargs["vector_weight"],
+                "bm25_weight": kwargs["bm25_weight"],
             },
         }
 
