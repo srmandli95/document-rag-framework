@@ -383,6 +383,40 @@ async def get_processing_job(
     return response
 
 
+async def get_chunk_detail(
+    chunk_id: str,
+    access_token: str | None = None,
+) -> dict[str, Any]:
+    token = _require_access_token(access_token)
+    response = await _request(
+        "GET",
+        f"/documents/chunks/{chunk_id}",
+        access_token=token,
+    )
+
+    if not isinstance(response, dict):
+        raise APIClientError("Unexpected document chunk response from backend")
+
+    return response
+
+
+async def list_document_chunks(
+    document_id: str,
+    access_token: str | None = None,
+) -> dict[str, Any]:
+    token = _require_access_token(access_token)
+    response = await _request(
+        "GET",
+        f"/documents/{document_id}/chunks",
+        access_token=token,
+    )
+
+    if not isinstance(response, dict):
+        raise APIClientError("Unexpected document chunks response from backend")
+
+    return response
+
+
 async def delete_document(
     document_id: str,
     access_token: str | None = None,
@@ -405,6 +439,23 @@ async def delete_document(
 
     if not isinstance(response, dict):
         raise APIClientError("Unexpected delete response from backend")
+
+    return response
+
+
+async def get_message_evidence(
+    message_id: str,
+    access_token: str | None = None,
+) -> dict[str, Any]:
+    token = _require_access_token(access_token)
+    response = await _request(
+        "GET",
+        f"/chat/messages/{message_id}/evidence",
+        access_token=token,
+    )
+
+    if not isinstance(response, dict):
+        raise APIClientError("Unexpected message evidence response from backend")
 
     return response
 

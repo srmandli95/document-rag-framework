@@ -66,6 +66,19 @@ class DocumentChunkMetadata(BaseModel):
     page_number: int | None = None
     status: str
 
+
+class DocumentChunkDetailResponse(DocumentChunkMetadata):
+    chunk_text: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class DocumentChunkListResponse(BaseModel):
+    document_id: str
+    user_id: str
+    chunks: list[DocumentChunkDetailResponse]
+
+
 class DocumentEmbeddingResponse(BaseModel):
     document_id: str
     user_id: str
