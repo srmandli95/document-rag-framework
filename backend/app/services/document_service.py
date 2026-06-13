@@ -39,16 +39,29 @@ def get_documents_by_user(
     db: Session,
     *,
     user_id: str,
+    status: str | None = None,
+    category: str | None = None,
+    search: str | None = None,
+    ready_only: bool = False,
 ) -> list[Document]:
-    return (
-        db.query(Document)
-        .filter(
-            Document.user_id == user_id,
-            Document.status != "deleted",
-        )
-        .order_by(Document.created_at.desc())
-        .all()
+    query = db.query(Document).filter(
+        Document.user_id == user_id,
+        Document.status != "deleted",
     )
+
+    if status:
+        query = query.filter(Document.status == status)
+
+    if category:
+        query = query.filter(Document.category == category)
+
+    if search:
+        query = query.filter(Document.original_file_name.ilike(f"%{search}%"))
+
+    if ready_only:
+        query = query.filter(Document.status == "embedded")
+
+    return query.order_by(Document.created_at.desc()).all()
 
 
 def get_document_by_id(

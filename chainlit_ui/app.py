@@ -36,6 +36,15 @@ SUPPORTED_CATEGORIES = [
     "general",
 ]
 
+SUPPORTED_DOCUMENT_STATUSES = [
+    "uploaded",
+    "processing",
+    "extracted",
+    "chunked",
+    "embedded",
+    "failed",
+]
+
 
 LOGIN_REQUIRED_MESSAGE = "Please login first using /login, /register, or /google."
 
@@ -56,6 +65,47 @@ def _get_current_category() -> str:
     return cl.user_session.get("current_category") or DEFAULT_CATEGORY
 
 
+def _reset_document_filters() -> None:
+    cl.user_session.set("document_filter_status", None)
+    cl.user_session.set("document_filter_category", None)
+    cl.user_session.set("document_filter_search", None)
+    cl.user_session.set("document_filter_ready_only", False)
+
+
+def _get_document_filters() -> dict:
+    return {
+        "status": cl.user_session.get("document_filter_status"),
+        "category": cl.user_session.get("document_filter_category"),
+        "search": cl.user_session.get("document_filter_search"),
+        "ready_only": bool(cl.user_session.get("document_filter_ready_only")),
+    }
+
+
+def _has_active_document_filters() -> bool:
+    return any(_get_document_filters().values())
+
+
+def _format_active_document_filters() -> str:
+    filters = _get_document_filters()
+    lines = [
+        f"- {name}: `{value}`"
+        for name, value in filters.items()
+        if value
+    ]
+
+    if not lines:
+        return "Active filters: none"
+
+    return "Active filters:\n" + "\n".join(lines)
+
+
+def _format_timestamp(value) -> str:
+    if value is None:
+        return "N/A"
+
+    return str(value)
+
+
 def _store_auth_session(auth_response: dict) -> None:
     access_token = auth_response.get("access_token")
     user = auth_response.get("user")
@@ -74,6 +124,7 @@ def _store_auth_session(auth_response: dict) -> None:
 
     # New authenticated user context should start a new chat session.
     cl.user_session.set("session_id", None)
+    _reset_document_filters()
 
 
 def _clear_auth_session() -> None:
@@ -83,6 +134,7 @@ def _clear_auth_session() -> None:
     cl.user_session.set("email", None)
     cl.user_session.set("auth_provider", None)
     cl.user_session.set("session_id", None)
+    _reset_document_filters()
 
 
 async def _require_login() -> bool:
@@ -143,8 +195,9 @@ def _format_response_metadata(response: dict) -> str:
 
     status = response.get("status")
     validation_status = response.get("validation_status")
-    validation_reason = response.get("validation_reason")
-    model_name = response.get("model_name")
+    evidence_sufficient = response.get("evidence_sufficient")
+    evidence_reason = response.get("evidence_sufficiency_reason")
+    rewritten_question = response.get("rewritten_question")
     session_id = response.get("session_id")
 
     if status:
@@ -153,11 +206,14 @@ def _format_response_metadata(response: dict) -> str:
     if validation_status:
         metadata_lines.append(f"- Validation Status: `{validation_status}`")
 
-    if validation_reason:
-        metadata_lines.append(f"- Validation Reason: {validation_reason}")
+    if evidence_sufficient is not None:
+        metadata_lines.append(f"- Evidence Sufficient: `{evidence_sufficient}`")
 
-    if model_name:
-        metadata_lines.append(f"- Model: `{model_name}`")
+    if evidence_reason:
+        metadata_lines.append(f"- Evidence Reason: {evidence_reason}")
+
+    if rewritten_question:
+        metadata_lines.append(f"- Rewritten Question: {rewritten_question}")
 
     if session_id:
         metadata_lines.append(f"- Session ID: `{session_id}`")
@@ -182,23 +238,38 @@ def _format_citations(response: dict) -> str:
         page_number = citation.get("page_number")
         section_title = citation.get("section_title") or "N/A"
         chunk_id = citation.get("chunk_id") or "N/A"
+        chunk_index = citation.get("chunk_index")
         reranker_score = citation.get("reranker_score")
         hybrid_score = citation.get("hybrid_score")
+        vector_score = citation.get("vector_score")
+        bm25_score = citation.get("bm25_score")
 
         page_display = page_number if page_number is not None else "N/A"
+        chunk_display = chunk_index if chunk_index is not None else "N/A"
 
         lines.append("")
         lines.append(f"### {index}. {document_name}")
         lines.append(f"- Category: `{category}`")
         lines.append(f"- Page: `{page_display}`")
         lines.append(f"- Section: `{section_title}`")
+        lines.append(f"- Chunk: `{chunk_display}`")
         lines.append(f"- Chunk ID: `{chunk_id}`")
 
-        if reranker_score is not None:
-            lines.append(f"- Reranker Score: `{reranker_score}`")
+        scores = []
+        for label, value in [
+            ("reranker", reranker_score),
+            ("hybrid", hybrid_score),
+            ("vector", vector_score),
+            ("bm25", bm25_score),
+        ]:
+            if value is not None:
+                try:
+                    scores.append(f"{label}={float(value):.4f}")
+                except (TypeError, ValueError):
+                    scores.append(f"{label}={value}")
 
-        if hybrid_score is not None:
-            lines.append(f"- Hybrid Score: `{hybrid_score}`")
+        if scores:
+            lines.append(f"- Scores: `{', '.join(scores)}`")
 
     return "\n".join(lines)
 
@@ -293,6 +364,34 @@ def _refresh_documents_action() -> cl.Action:
     return _action("refresh_documents_action", "refresh", "Refresh Documents")
 
 
+def _document_filter_actions() -> list[cl.Action]:
+    return [
+        _action("filter_ready_action", "ready", "Ready Only"),
+        _action("filter_failed_action", "failed", "Failed"),
+        _action("filter_uploaded_action", "uploaded", "Uploaded"),
+        _action("clear_document_filters_action", "clear", "Clear Filters"),
+        _refresh_documents_action(),
+    ]
+
+
+def _source_actions(citations: list[dict]) -> list[cl.Action]:
+    for citation in citations:
+        document_id = citation.get("document_id")
+        category = citation.get("category")
+        actions = []
+
+        if document_id:
+            actions.append(_action("view_jobs_action", str(document_id), "View Document Jobs"))
+        if category:
+            actions.append(
+                _action("filter_source_category_action", str(category), "Filter by Category")
+            )
+        actions.append(_action("filter_ready_action", "ready", "Show Ready Documents"))
+        return actions
+
+    return []
+
+
 def _new_chat_action() -> cl.Action:
     return _action("new_chat_action", "new", "New Chat")
 
@@ -308,6 +407,9 @@ async def on_chat_start() -> None:
 
     if cl.user_session.get("current_category") is None:
         cl.user_session.set("current_category", DEFAULT_CATEGORY)
+
+    if cl.user_session.get("document_filter_ready_only") is None:
+        _reset_document_filters()
 
     startup_lines = [
         "Personal Policy RAG Assistant is ready.",
@@ -386,8 +488,10 @@ async def handle_documents_command() -> None:
         return
 
     try:
+        filters = _get_document_filters()
         response = await list_documents(
             access_token=_get_access_token(),
+            **filters,
         )
     except APIClientError as exc:
         await cl.Message(content=f"Could not list documents: {exc}").send()
@@ -402,30 +506,38 @@ async def handle_documents_command() -> None:
     ]
 
     if not visible_documents:
+        message = (
+            "No documents match the current filters. Try `/filter clear`."
+            if _has_active_document_filters()
+            else "No documents found. Upload a file to get started."
+        )
         await cl.Message(
-            content=(
-                "No active documents found.\n\n"
-                "Upload a document first, then type `/documents` again."
-            )
+            content=f"{_format_active_document_filters()}\n\n{message}",
+            actions=_document_filter_actions(),
         ).send()
         return
 
     await cl.Message(
-        content=f"Active documents: `{len(visible_documents)}`",
-        actions=[_refresh_documents_action()],
+        content=(
+            f"{_format_active_document_filters()}\n\n"
+            f"Matching documents: `{len(visible_documents)}`"
+        ),
+        actions=_document_filter_actions(),
     ).send()
 
     for document in visible_documents:
         document_id = document.get("document_id") or document.get("id")
         file_name = (
-            document.get("file_name")
-            or document.get("filename")
-            or document.get("original_file_name")
+            document.get("original_file_name")
             or document.get("original_filename")
+            or document.get("file_name")
+            or document.get("filename")
             or "Unknown file"
         )
         category = document.get("category") or "general"
         status = document.get("status") or "unknown"
+        created_at = _format_timestamp(document.get("created_at"))
+        updated_at = _format_timestamp(document.get("updated_at"))
 
         readiness, suggested_action = _document_readiness_label(status)
 
@@ -442,10 +554,60 @@ async def handle_documents_command() -> None:
                 f"- Category: `{category}`\n"
                 f"- Status: `{status}`\n"
                 f"- Readiness: **{readiness}**\n"
+                f"- Uploaded: `{created_at}`\n"
+                f"- Updated: `{updated_at}`\n"
                 f"- Suggested action: {suggested_action}"
             ),
             actions=_document_actions(document),
         ).send()
+
+
+async def handle_filter_command(message_text: str) -> None:
+    if not await _require_login():
+        return
+
+    parts = message_text.strip().split(maxsplit=2)
+    if len(parts) < 2:
+        await cl.Message(
+            content=(
+                "Usage: `/filter status <status>`, `/filter category <category>`, "
+                "`/filter search <text>`, `/filter ready`, or `/filter clear`."
+            )
+        ).send()
+        return
+
+    filter_type = parts[1].lower()
+
+    if filter_type == "clear":
+        _reset_document_filters()
+    elif filter_type == "ready":
+        cl.user_session.set("document_filter_status", None)
+        cl.user_session.set("document_filter_ready_only", True)
+    elif filter_type == "status":
+        if len(parts) < 3 or parts[2].strip().lower() not in SUPPORTED_DOCUMENT_STATUSES:
+            await cl.Message(
+                content=f"Supported statuses: {', '.join(SUPPORTED_DOCUMENT_STATUSES)}"
+            ).send()
+            return
+        cl.user_session.set("document_filter_status", parts[2].strip().lower())
+        cl.user_session.set("document_filter_ready_only", False)
+    elif filter_type == "category":
+        if len(parts) < 3 or parts[2].strip().lower() not in SUPPORTED_CATEGORIES:
+            await cl.Message(
+                content=f"Supported categories: {', '.join(SUPPORTED_CATEGORIES)}"
+            ).send()
+            return
+        cl.user_session.set("document_filter_category", parts[2].strip().lower())
+    elif filter_type == "search":
+        if len(parts) < 3 or not parts[2].strip():
+            await cl.Message(content="Usage: `/filter search <text>`").send()
+            return
+        cl.user_session.set("document_filter_search", parts[2].strip())
+    else:
+        await cl.Message(content=f"Unknown document filter: `{filter_type}`").send()
+        return
+
+    await handle_documents_command()
 
 
 async def _handle_process_document(document_id: str, force: bool = False) -> None:
@@ -912,6 +1074,12 @@ async def handle_help_command() -> None:
             "- `/categories`\n"
             "- Upload a file\n"
             "- `/documents`\n"
+            "- `/filter status <status>`\n"
+            "- `/filter category <category>`\n"
+            "- `/filter search <text>`\n"
+            "- `/filter ready`\n"
+            "- `/filter clear`\n"
+            "- You can also use filter buttons in the document list.\n"
             "- `/process <document_id>`\n"
             "- `/reprocess <document_id>`\n"
             "- `/jobs <document_id>`\n"
@@ -958,6 +1126,7 @@ async def handle_question(message_text: str) -> None:
     answer = response.get("answer") or response.get("final_answer") or "No answer returned."
     metadata = _format_response_metadata(response)
     citations = _format_citations(response)
+    source_actions = _source_actions(response.get("citations") or [])
 
     sections = [answer]
 
@@ -967,7 +1136,10 @@ async def handle_question(message_text: str) -> None:
     if citations:
         sections.append(citations)
 
-    await cl.Message(content="\n\n".join(sections)).send()
+    await cl.Message(
+        content="\n\n".join(sections),
+        actions=source_actions,
+    ).send()
 
 
 async def _send_missing_action_value(resource_name: str) -> None:
@@ -1034,6 +1206,44 @@ async def on_refresh_documents_action(action: cl.Action) -> None:
     await handle_documents_command()
 
 
+@cl.action_callback("filter_ready_action")
+async def on_filter_ready_action(action: cl.Action) -> None:
+    cl.user_session.set("document_filter_status", None)
+    cl.user_session.set("document_filter_ready_only", True)
+    await handle_documents_command()
+
+
+@cl.action_callback("filter_failed_action")
+async def on_filter_failed_action(action: cl.Action) -> None:
+    cl.user_session.set("document_filter_status", "failed")
+    cl.user_session.set("document_filter_ready_only", False)
+    await handle_documents_command()
+
+
+@cl.action_callback("filter_uploaded_action")
+async def on_filter_uploaded_action(action: cl.Action) -> None:
+    cl.user_session.set("document_filter_status", "uploaded")
+    cl.user_session.set("document_filter_ready_only", False)
+    await handle_documents_command()
+
+
+@cl.action_callback("clear_document_filters_action")
+async def on_clear_document_filters_action(action: cl.Action) -> None:
+    _reset_document_filters()
+    await handle_documents_command()
+
+
+@cl.action_callback("filter_source_category_action")
+async def on_filter_source_category_action(action: cl.Action) -> None:
+    category = _get_action_value(action)
+    if not category:
+        await _send_missing_action_value("document category")
+        return
+
+    cl.user_session.set("document_filter_category", category)
+    await handle_documents_command()
+
+
 @cl.action_callback("new_chat_action")
 async def on_new_chat_action(action: cl.Action) -> None:
     await handle_new_command()
@@ -1074,6 +1284,10 @@ async def main(message: cl.Message) -> None:
 
     if normalized == "/documents":
         await handle_documents_command()
+        return
+
+    if normalized == "/filter" or normalized.startswith("/filter "):
+        await handle_filter_command(message_text)
         return
 
     if normalized.startswith("/process "):

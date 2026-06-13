@@ -280,6 +280,10 @@ async def upload_document(
 
 async def list_documents(
     access_token: str | None = None,
+    status: str | None = None,
+    category: str | None = None,
+    search: str | None = None,
+    ready_only: bool = False,
 ) -> dict[str, Any]:
     """
     Protected endpoint.
@@ -290,10 +294,21 @@ async def list_documents(
     - Backend returns documents for current_user.id.
     """
     token = _require_access_token(access_token)
+    params: dict[str, Any] = {}
+
+    if status:
+        params["status"] = status
+    if category:
+        params["category"] = category
+    if search:
+        params["search"] = search
+    if ready_only:
+        params["ready_only"] = True
 
     response = await _request(
         "GET",
         "/documents",
+        params=params or None,
         access_token=token,
     )
 

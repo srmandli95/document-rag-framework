@@ -72,12 +72,37 @@ def fake_create_document_record(
     return document
 
 
-def fake_get_documents_by_user(db, *, user_id):
-    return [
+def fake_get_documents_by_user(
+    db,
+    *,
+    user_id,
+    status=None,
+    category=None,
+    search=None,
+    ready_only=False,
+):
+    documents = [
         document
         for document in fake_documents.values()
         if document.user_id == user_id and document.status != "deleted"
     ]
+
+    if status:
+        documents = [document for document in documents if document.status == status]
+    if category:
+        documents = [document for document in documents if document.category == category]
+    if search:
+        documents = [
+            document
+            for document in documents
+            if search.lower() in document.original_file_name.lower()
+        ]
+    if ready_only:
+        documents = [
+            document for document in documents if document.status == "embedded"
+        ]
+
+    return documents
 
 
 def fake_get_document_by_id(db, *, document_id, user_id):
