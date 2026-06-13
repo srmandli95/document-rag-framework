@@ -56,9 +56,14 @@ vector_store/
 htmlcov/
 coverage.xml
 
-# Generated Chainlit configuration
+# Frontend dependencies and TypeScript build metadata
+frontend/node_modules/
+*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+
+# Legacy local tool output
 .chainlit/
-chainlit_ui/.chainlit/
 
 # Secrets / keys
 *.pem
