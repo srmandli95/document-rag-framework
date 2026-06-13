@@ -74,6 +74,9 @@ data/uploaded_files/*
 data/processed_chunks/*
 data/eval/*
 backend/eval/private_*.json
+backend/eval/results/*.json
+backend/eval/results/*.md
+!backend/eval/results/.gitkeep
 
 # Keep folder structure
 !data/raw_documents/.gitkeep
