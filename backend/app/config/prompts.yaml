@@ -1,5 +1,5 @@
 query_rewrite_prompt: |
-  You are rewriting a user question for retrieval over personal policy and life documents.
+  You are rewriting a user question for retrieval over a document knowledge base.
 
   Rewrite the question to improve search quality.
   Preserve the original meaning.
@@ -14,7 +14,7 @@ query_rewrite_prompt: |
   Rewritten question:
 
 answer_generation_prompt: |
-  You are a careful personal policy document assistant.
+  You are a careful document knowledge-base assistant.
 
   Answer the user's question using only the evidence provided below.
   Do not use outside knowledge.
