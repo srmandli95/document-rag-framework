@@ -132,3 +132,64 @@ class RerankSearchResponse(BaseModel):
     top_k: int
     result_count: int
     results: list[RerankSearchResult]
+
+
+class RetrievalDiagnosticsRequest(BaseModel):
+    user_id: str | None = None
+    query: str
+    vector_top_k: int = 10
+    bm25_top_k: int = 10
+    hybrid_top_k: int = 10
+    rerank_top_k: int = 5
+
+
+class RetrievalDiagnosticsResult(BaseModel):
+    chunk_id: str | None = None
+    document_id: str | None = None
+    document_name: str | None = None
+    category: str | None = None
+    chunk_index: int | None = None
+    page_number: int | None = None
+    section_title: str | None = None
+    token_count: int | None = None
+    chunk_text_preview: str
+    distance: float | None = None
+    similarity_score: float | None = None
+    vector_score: float | None = None
+    bm25_score: float | None = None
+    normalized_vector_score: float | None = None
+    normalized_bm25_score: float | None = None
+    hybrid_score: float | None = None
+    reranker_score: float | None = None
+    retrieval_sources: list[str] | None = None
+
+
+class RetrievalRankChange(BaseModel):
+    chunk_id: str
+    before_rank: int
+    after_rank: int
+    rank_delta: int
+    document_name: str | None = None
+    section_title: str | None = None
+    hybrid_score: float | None = None
+    reranker_score: float | None = None
+
+
+class RetrievalDiagnosticsSummary(BaseModel):
+    vector_count: int
+    bm25_count: int
+    hybrid_count: int
+    reranked_count: int
+    overlap_vector_bm25: int
+    overlap_hybrid_rerank: int
+
+
+class RetrievalDiagnosticsResponse(BaseModel):
+    user_id: str
+    query: str
+    vector_results: list[RetrievalDiagnosticsResult]
+    bm25_results: list[RetrievalDiagnosticsResult]
+    hybrid_results: list[RetrievalDiagnosticsResult]
+    reranked_results: list[RetrievalDiagnosticsResult]
+    rank_changes: list[RetrievalRankChange]
+    summary: RetrievalDiagnosticsSummary

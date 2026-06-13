@@ -151,6 +151,9 @@ def test_generate_markdown_report_includes_failed_case_details():
     assert "- Citation Count: 0" in report
     assert "- Evidence Chunk Count: 0" in report
     assert "- Answer Preview: No copay found." in report
+    assert "- Debug command:" in report
+    assert "scripts/diagnose_retrieval.py" in report
+    assert "--user-id local-user-123" in report
 
 
 def test_generate_markdown_report_truncates_and_normalizes_failed_answer():
@@ -179,6 +182,25 @@ def test_generate_markdown_report_includes_all_cases_table():
     assert "| Case ID | Passed | Status | Citation Count | Evidence Count |" in report
     assert "| passing-case | Yes | passed | 1 | 1 |" in report
     assert "| failing-case | No | failed | 0 | 0 |" in report
+
+
+def test_generate_markdown_report_shell_quotes_diagnostics_question():
+    case = make_case_result("failing-case", False)
+    case.question = "What's covered; echo unsafe?"
+
+    report = generate_markdown_report(make_run(case))
+
+    assert "'\"'\"'" in report
+    assert "sh -c 'PYTHONPATH=/app python scripts/diagnose_retrieval.py" in report
+
+
+def test_generate_markdown_report_omits_diagnostics_without_user_id():
+    run = make_run(make_case_result("failing-case", False))
+    run.user_id = None
+
+    report = generate_markdown_report(run)
+
+    assert "Debug command:" not in report
 
 
 def test_save_markdown_report_writes_file(tmp_path):
