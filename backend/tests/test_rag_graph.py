@@ -34,8 +34,13 @@ def test_run_rag_workflow_returns_final_response(monkeypatch):
         hybrid_top_k,
         vector_top_k,
         bm25_top_k,
+        vector_weight,
+        bm25_weight,
     ):
         assert query == "late payment DTE Energy consequences"
+        assert top_k == 8
+        assert vector_weight == 0.6
+        assert bm25_weight == 0.4
 
         return [
             {

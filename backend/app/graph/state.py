@@ -12,6 +12,9 @@ class RAGState(TypedDict, total=False):
     hybrid_top_k: int
     vector_top_k: int
     bm25_top_k: int
+    rerank_top_k: int
+    vector_weight: float
+    bm25_weight: float
     min_reranker_score: float | None
 
     user_context: dict[str, Any] | None

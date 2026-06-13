@@ -89,6 +89,8 @@ def test_retrieve_and_rerank_node_uses_rewritten_question(monkeypatch):
         hybrid_top_k,
         vector_top_k,
         bm25_top_k,
+        vector_weight,
+        bm25_weight,
     ):
         captured["query"] = query
 
@@ -120,6 +122,36 @@ def test_retrieve_and_rerank_node_uses_rewritten_question(monkeypatch):
 
     assert captured["query"] == "rewritten search query"
     assert len(result["evidence_chunks"]) == 1
+
+
+def test_retrieve_and_rerank_node_reranks_then_slices_final_evidence(monkeypatch):
+    captured = {}
+
+    def fake_rerank_hybrid_results(**kwargs):
+        captured.update(kwargs)
+        return [{"chunk_id": f"chunk-{index}"} for index in range(8)]
+
+    monkeypatch.setattr(
+        "app.graph.nodes.rerank_hybrid_results",
+        fake_rerank_hybrid_results,
+    )
+
+    state = {
+        "db": object(),
+        "user_id": "local-user-123",
+        "question": "question",
+        "top_k": 3,
+        "rerank_top_k": 8,
+        "vector_weight": 0.7,
+        "bm25_weight": 0.3,
+    }
+
+    result = retrieve_and_rerank_node(state)
+
+    assert captured["top_k"] == 8
+    assert captured["vector_weight"] == 0.7
+    assert captured["bm25_weight"] == 0.3
+    assert len(result["evidence_chunks"]) == 3
 
 
 def test_evidence_sufficiency_fails_when_no_chunks():
@@ -252,6 +284,8 @@ def test_run_rag_workflow_includes_rewrite_and_evidence_fields(monkeypatch):
         hybrid_top_k,
         vector_top_k,
         bm25_top_k,
+        vector_weight,
+        bm25_weight,
     ):
         return [
             {
