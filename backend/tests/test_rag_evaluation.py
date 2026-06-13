@@ -213,6 +213,36 @@ def test_run_rag_evaluation_handles_successful_fake_answer(monkeypatch):
     assert run.pass_rate == 100.0
 
 
+def test_run_rag_evaluation_passes_normalized_retrieval_settings(monkeypatch):
+    captured = {}
+
+    def fake_generate_answer(**kwargs):
+        captured.update(kwargs)
+        return supported_response()
+
+    monkeypatch.setattr(
+        "app.evaluation.eval_runner.generate_answer_from_evidence",
+        fake_generate_answer,
+    )
+
+    run_rag_evaluation(
+        db=object(),
+        user_id="local-user-123",
+        cases=[make_case()],
+        top_k=4,
+        rerank_top_k=9,
+        vector_weight=7,
+        bm25_weight=3,
+        min_reranker_score=0.5,
+    )
+
+    assert captured["top_k"] == 4
+    assert captured["rerank_top_k"] == 9
+    assert captured["vector_weight"] == pytest.approx(0.7)
+    assert captured["bm25_weight"] == pytest.approx(0.3)
+    assert captured["min_reranker_score"] == 0.5
+
+
 def test_run_rag_evaluation_catches_exceptions_per_case(monkeypatch):
     calls = 0
 
