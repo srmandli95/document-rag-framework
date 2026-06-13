@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    APP_NAME: str = "personal-policy-rag-assistant"
+    APP_NAME: str = "Document RAG"
     ENV: str = "local"
 
     STORAGE_PROVIDER: str = "local"

@@ -26,7 +26,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title=settings.APP_NAME,
     version="0.1.0",
-    description="Production-grade RAG assistant for personal policy and life documents.",
+    description="Production-grade document RAG application.",
     lifespan=lifespan,
 )
 
@@ -49,6 +49,6 @@ app.include_router(auth_router)
 @app.get("/")
 def root() -> dict[str, str]:
     return {
-        "message": "Welcome to PersonalPolicyRagAssistant backend",
+        "message": "Welcome to the RAG application backend",
         "docs": "/docs",
     }
