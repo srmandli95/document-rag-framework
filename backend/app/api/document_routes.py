@@ -56,6 +56,31 @@ ALLOWED_EXTENSIONS = {
     ".html",
 }
 
+SUPPORTED_DOCUMENT_STATUSES = {
+    "uploaded",
+    "processing",
+    "extracted",
+    "chunked",
+    "embedded",
+    "failed",
+}
+
+SUPPORTED_DOCUMENT_CATEGORIES = {
+    "health_insurance",
+    "auto_insurance",
+    "home_insurance",
+    "mortgage",
+    "hoa",
+    "employer_benefits",
+    "internet",
+    "utility",
+    "banking",
+    "credit_card",
+    "warranty",
+    "travel",
+    "general",
+}
+
 
 def _validate_category(category: str) -> str:
     clean_category = category.strip()
@@ -252,6 +277,10 @@ async def upload_document(
 @router.get("", response_model=DocumentListResponse)
 def list_documents(
     user_id: str | None = Query(default=None),  # Backward compatible, ignored.
+    status_filter: str | None = Query(default=None, alias="status"),
+    category: str | None = Query(default=None),
+    search: str | None = Query(default=None),
+    ready_only: bool = Query(default=False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> DocumentListResponse:
@@ -263,10 +292,35 @@ def list_documents(
     - query user_id is ignored.
     """
     authenticated_user_id = str(current_user.id)
+    clean_status = status_filter.strip() if status_filter else None
+    clean_category = category.strip() if category else None
+    clean_search = search.strip() if search else None
+
+    if clean_status and clean_status not in SUPPORTED_DOCUMENT_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Unsupported document status: {clean_status}. "
+                f"Supported statuses: {', '.join(sorted(SUPPORTED_DOCUMENT_STATUSES))}"
+            ),
+        )
+
+    if clean_category and clean_category not in SUPPORTED_DOCUMENT_CATEGORIES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Unsupported document category: {clean_category}. "
+                f"Supported categories: {', '.join(sorted(SUPPORTED_DOCUMENT_CATEGORIES))}"
+            ),
+        )
 
     documents = get_documents_by_user(
         db=db,
         user_id=authenticated_user_id,
+        status=clean_status,
+        category=clean_category,
+        search=clean_search,
+        ready_only=ready_only,
     )
 
     document_metadata = [
