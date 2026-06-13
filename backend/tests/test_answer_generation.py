@@ -14,6 +14,9 @@ def test_generate_answer_from_evidence_returns_refusal_when_no_evidence(monkeypa
         hybrid_top_k=20,
         vector_top_k=20,
         bm25_top_k=20,
+        rerank_top_k=8,
+        vector_weight=0.6,
+        bm25_weight=0.4,
         min_reranker_score=None,
     ):
         return {
@@ -62,6 +65,9 @@ def test_generate_answer_from_evidence_returns_answered_response(monkeypatch):
         hybrid_top_k=20,
         vector_top_k=20,
         bm25_top_k=20,
+        rerank_top_k=8,
+        vector_weight=0.6,
+        bm25_weight=0.4,
         min_reranker_score=None,
     ):
         return {
@@ -125,6 +131,9 @@ def test_generate_answer_from_evidence_passes_parameters_to_graph(monkeypatch):
         hybrid_top_k=20,
         vector_top_k=20,
         bm25_top_k=20,
+        rerank_top_k=8,
+        vector_weight=0.6,
+        bm25_weight=0.4,
         min_reranker_score=None,
     ):
         captured["db"] = db
@@ -134,6 +143,9 @@ def test_generate_answer_from_evidence_passes_parameters_to_graph(monkeypatch):
         captured["hybrid_top_k"] = hybrid_top_k
         captured["vector_top_k"] = vector_top_k
         captured["bm25_top_k"] = bm25_top_k
+        captured["rerank_top_k"] = rerank_top_k
+        captured["vector_weight"] = vector_weight
+        captured["bm25_weight"] = bm25_weight
         captured["min_reranker_score"] = min_reranker_score
 
         return {
@@ -163,6 +175,9 @@ def test_generate_answer_from_evidence_passes_parameters_to_graph(monkeypatch):
         hybrid_top_k=30,
         vector_top_k=25,
         bm25_top_k=15,
+        rerank_top_k=10,
+        vector_weight=7,
+        bm25_weight=3,
         min_reranker_score=0.5,
     )
 
@@ -173,6 +188,9 @@ def test_generate_answer_from_evidence_passes_parameters_to_graph(monkeypatch):
     assert captured["hybrid_top_k"] == 30
     assert captured["vector_top_k"] == 25
     assert captured["bm25_top_k"] == 15
+    assert captured["rerank_top_k"] == 10
+    assert captured["vector_weight"] == 7
+    assert captured["bm25_weight"] == 3
     assert captured["min_reranker_score"] == 0.5
 
 
@@ -185,6 +203,9 @@ def test_generate_answer_from_evidence_does_not_call_openai_or_reranker_directly
         hybrid_top_k=20,
         vector_top_k=20,
         bm25_top_k=20,
+        rerank_top_k=8,
+        vector_weight=0.6,
+        bm25_weight=0.4,
         min_reranker_score=None,
     ):
         return {

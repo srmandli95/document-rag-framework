@@ -46,6 +46,9 @@ def generate_answer_from_evidence(
     hybrid_top_k: int = 20,
     vector_top_k: int = 20,
     bm25_top_k: int = 20,
+    rerank_top_k: int = 8,
+    vector_weight: float = 0.6,
+    bm25_weight: float = 0.4,
     min_reranker_score: float | None = None,
 ) -> dict[str, Any]:
     
@@ -60,5 +63,8 @@ def generate_answer_from_evidence(
         hybrid_top_k=hybrid_top_k,
         vector_top_k=vector_top_k,
         bm25_top_k=bm25_top_k,
+        rerank_top_k=rerank_top_k,
+        vector_weight=vector_weight,
+        bm25_weight=bm25_weight,
         min_reranker_score=min_reranker_score,
     )
