@@ -3,6 +3,10 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.retrieval.bm25_retriever import bm25_search
+from app.retrieval.retrieval_settings import (
+    RetrievalSettings,
+    validate_retrieval_settings,
+)
 from app.retrieval.vector_retriever import vector_search
 
 
@@ -28,38 +32,13 @@ def normalize_scores(scores: list[float]) -> list[float]:
     ]
 
 
-def _validate_search_inputs(
-    user_id: str,
-    query: str,
-    top_k: int,
-    vector_top_k: int,
-    bm25_top_k: int,
-    vector_weight: float,
-    bm25_weight: float,
-) -> None:
+def _validate_identity_and_query(user_id: str, query: str) -> None:
     if not user_id or not user_id.strip():
         raise ValueError("user_id is required")
 
     if not query or not query.strip():
         raise ValueError("query is required")
 
-    if top_k <= 0:
-        raise ValueError("top_k must be greater than 0")
-
-    if vector_top_k <= 0:
-        raise ValueError("vector_top_k must be greater than 0")
-
-    if bm25_top_k <= 0:
-        raise ValueError("bm25_top_k must be greater than 0")
-
-    if vector_weight < 0:
-        raise ValueError("vector_weight must be non-negative")
-
-    if bm25_weight < 0:
-        raise ValueError("bm25_weight must be non-negative")
-
-    if vector_weight == 0 and bm25_weight == 0:
-        raise ValueError("At least one retrieval weight must be greater than 0")
 
 
 def hybrid_search(
@@ -80,22 +59,28 @@ def hybrid_search(
     It does not call an LLM and does not generate a final answer.
     """
 
-    _validate_search_inputs(
+    _validate_identity_and_query(
         user_id=user_id,
         query=query,
-        top_k=top_k,
-        vector_top_k=vector_top_k,
-        bm25_top_k=bm25_top_k,
-        vector_weight=vector_weight,
-        bm25_weight=bm25_weight,
+    )
+    retrieval_settings = validate_retrieval_settings(
+        RetrievalSettings(
+            top_k=top_k,
+            vector_top_k=vector_top_k,
+            bm25_top_k=bm25_top_k,
+            vector_weight=vector_weight,
+            bm25_weight=bm25_weight,
+        )
     )
 
     user_id = user_id.strip()
     query = query.strip()
 
-    top_k = min(top_k, 20)
-    vector_top_k = min(vector_top_k, 50)
-    bm25_top_k = min(bm25_top_k, 50)
+    top_k = retrieval_settings.top_k
+    vector_top_k = retrieval_settings.vector_top_k
+    bm25_top_k = retrieval_settings.bm25_top_k
+    vector_weight = retrieval_settings.vector_weight
+    bm25_weight = retrieval_settings.bm25_weight
 
     vector_results = vector_search(
         db=db,
