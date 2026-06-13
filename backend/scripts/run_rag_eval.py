@@ -34,6 +34,13 @@ def parse_args() -> argparse.Namespace:
         default=5,
         help="Final retrieval result count.",
     )
+    parser.add_argument("--hybrid-top-k", type=int, default=20)
+    parser.add_argument("--vector-top-k", type=int, default=20)
+    parser.add_argument("--bm25-top-k", type=int, default=20)
+    parser.add_argument("--rerank-top-k", type=int, default=8)
+    parser.add_argument("--vector-weight", type=float, default=0.6)
+    parser.add_argument("--bm25-weight", type=float, default=0.4)
+    parser.add_argument("--min-reranker-score", type=float)
     parser.add_argument(
         "--output-json",
         default="eval/results/latest_eval_result.json",
@@ -95,12 +102,23 @@ def main() -> int:
 
     db = SessionLocal()
     try:
-        result = run_rag_evaluation(
-            db=db,
-            user_id=args.user_id,
-            cases=cases,
-            top_k=args.top_k,
-        )
+        try:
+            result = run_rag_evaluation(
+                db=db,
+                user_id=args.user_id,
+                cases=cases,
+                top_k=args.top_k,
+                hybrid_top_k=args.hybrid_top_k,
+                vector_top_k=args.vector_top_k,
+                bm25_top_k=args.bm25_top_k,
+                rerank_top_k=args.rerank_top_k,
+                vector_weight=args.vector_weight,
+                bm25_weight=args.bm25_weight,
+                min_reranker_score=args.min_reranker_score,
+            )
+        except ValueError as exc:
+            print(f"Invalid retrieval settings: {exc}", file=sys.stderr)
+            return 1
     finally:
         db.close()
 
