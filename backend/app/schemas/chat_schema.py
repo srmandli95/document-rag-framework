@@ -13,6 +13,9 @@ class AskRequest(BaseModel):
     hybrid_top_k: int = 20
     vector_top_k: int = 20
     bm25_top_k: int = 20
+    rerank_top_k: int = 8
+    vector_weight: float = 0.6
+    bm25_weight: float = 0.4
     min_reranker_score: float | None = None
 
 
