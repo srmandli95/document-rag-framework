@@ -1,7 +1,7 @@
 services:
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: personal-policy-rag-assistant-postgres
+    container_name: document-rag-postgres
     environment:
       POSTGRES_USER: personal_policy_rag_assistant
       POSTGRES_PASSWORD: personal_policy_rag_assistant
@@ -21,11 +21,11 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    container_name: personal-policy-rag-assistant-backend
+    container_name: document-rag-backend
     env_file:
       - .env
     environment:
-      APP_NAME: PersonalPolicyRagAssistant
+      APP_NAME: Document RAG
       DATABASE_URL: postgresql+psycopg2://personal_policy_rag_assistant:personal_policy_rag_assistant@postgres:5432/personal_policy_rag_assistant
     ports:
       - "8000:8000"
@@ -35,16 +35,13 @@ services:
       postgres:
         condition: service_healthy
 
-  chainlit:
+  frontend:
     build:
-      context: ./chainlit_ui
+      context: ./frontend
       dockerfile: Dockerfile
-    container_name: personal_policy_rag_chainlit
+    container_name: document-rag-frontend
     ports:
-      - "8501:8501"
-    environment:
-      BACKEND_API_URL: ${BACKEND_API_URL}
-      CHAINLIT_AUTH_SECRET: ${CHAINLIT_AUTH_SECRET}
+      - "3000:80"
     depends_on:
       - backend
 
