@@ -262,8 +262,8 @@ def test_rerank_endpoint_empty_query_validation():
     assert response.json()["detail"] == "query is required"
 
 
-def test_rerank_endpoint_top_k_capped_at_10(monkeypatch):
-    """Rerank search caps top_k at 10."""
+def test_rerank_endpoint_rejects_top_k_above_20(monkeypatch):
+    """Rerank search rejects top_k above the central limit."""
     setup_auth_overrides("test-user")
 
     captured = {}
@@ -285,8 +285,32 @@ def test_rerank_endpoint_top_k_capped_at_10(monkeypatch):
         },
     )
 
+    assert response.status_code == 400
+    assert response.json()["detail"] == "rerank_top_k must be between 1 and 20"
+    assert "top_k" not in captured
+
+
+def test_rerank_endpoint_normalizes_custom_weights(monkeypatch):
+    setup_auth_overrides("test-user")
+    captured = {}
+
+    def fake_rerank_hybrid_results(**kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(
+        "app.api.retrieval_routes.rerank_hybrid_results",
+        fake_rerank_hybrid_results,
+    )
+
+    response = client.post(
+        "/search/rerank",
+        json={"query": "test", "vector_weight": 7, "bm25_weight": 3},
+    )
+
     assert response.status_code == 200
-    assert captured["top_k"] == 10
+    assert captured["vector_weight"] == 0.7
+    assert captured["bm25_weight"] == 0.3
 
 
 def test_rerank_endpoint_no_results_returns_empty_list(monkeypatch):

@@ -3,6 +3,10 @@ from typing import Any
 from app.config.settings import settings
 from app.reranking.cross_encoder_reranker import CrossEncoderReranker
 from app.retrieval.hybrid_retriever import hybrid_search
+from app.retrieval.retrieval_settings import (
+    RetrievalSettings,
+    validate_retrieval_settings,
+)
 
 
 def rerank_hybrid_results(
@@ -29,20 +33,26 @@ def rerank_hybrid_results(
     if not query or not query.strip():
         raise ValueError("query is required")
 
-    safe_top_k = min(max(1, top_k), 10)
-    safe_hybrid_top_k = min(max(1, hybrid_top_k), 50)
-    safe_vector_top_k = min(max(1, vector_top_k), 50)
-    safe_bm25_top_k = min(max(1, bm25_top_k), 50)
+    retrieval_settings = validate_retrieval_settings(
+        RetrievalSettings(
+            vector_top_k=vector_top_k,
+            bm25_top_k=bm25_top_k,
+            hybrid_top_k=hybrid_top_k,
+            rerank_top_k=top_k,
+            vector_weight=vector_weight,
+            bm25_weight=bm25_weight,
+        )
+    )
 
     candidates = hybrid_search(
         db=db,
         user_id=user_id,
         query=query,
-        top_k=safe_hybrid_top_k,
-        vector_top_k=safe_vector_top_k,
-        bm25_top_k=safe_bm25_top_k,
-        vector_weight=vector_weight,
-        bm25_weight=bm25_weight,
+        top_k=retrieval_settings.hybrid_top_k,
+        vector_top_k=retrieval_settings.vector_top_k,
+        bm25_top_k=retrieval_settings.bm25_top_k,
+        vector_weight=retrieval_settings.vector_weight,
+        bm25_weight=retrieval_settings.bm25_weight,
     )
 
     if not candidates:
@@ -55,5 +65,5 @@ def rerank_hybrid_results(
     return reranker.rerank(
         query=query,
         candidates=candidates,
-        top_k=safe_top_k,
+        top_k=retrieval_settings.rerank_top_k,
     )
