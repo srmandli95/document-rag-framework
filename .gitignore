@@ -73,6 +73,7 @@ data/extracted_text/*
 data/uploaded_files/*
 data/processed_chunks/*
 data/eval/*
+backend/eval/private_*.json
 
 # Keep folder structure
 !data/raw_documents/.gitkeep
