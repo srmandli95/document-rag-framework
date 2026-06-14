@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "./api/client";
 import { ChatPanel } from "./components/ChatPanel";
+import { ChatHistoryPanel } from "./components/ChatHistoryPanel";
 import { DocumentPanel } from "./components/DocumentPanel";
 import type { ChatMessage, ChatSession, DocumentRecord } from "./types";
 
@@ -15,6 +16,7 @@ export default function App() {
   const [activeSessionId, setActiveSessionId] = useState<string>();
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   const loadDocuments = useCallback(async () => {
     try {
@@ -30,8 +32,9 @@ export default function App() {
   const loadSessions = useCallback(async () => {
     try {
       setSessions(await api.listSessions());
+      setHistoryError(null);
     } catch (error) {
-      setChatError(error instanceof Error ? error.message : "Could not load chat sessions");
+      setHistoryError(error instanceof Error ? error.message : "Could not load chat sessions");
     }
   }, []);
 
@@ -101,6 +104,25 @@ export default function App() {
     }
   };
 
+  const newChat = () => {
+    setActiveSessionId(undefined);
+    setMessages([]);
+    setChatError(null);
+  };
+
+  const deleteSession = async (session: ChatSession) => {
+    setHistoryError(null);
+    try {
+      await api.deleteSession(session.session_id);
+      setSessions((current) => current.filter((item) => item.session_id !== session.session_id));
+      if (activeSessionId === session.session_id) {
+        newChat();
+      }
+    } catch (error) {
+      setHistoryError(error instanceof Error ? error.message : "Could not delete chat");
+    }
+  };
+
   return (
     <div className="app-shell">
       <DocumentPanel
@@ -110,16 +132,20 @@ export default function App() {
         onUpload={upload}
         onDelete={remove}
       />
-      <ChatPanel
-        messages={messages}
+      <ChatHistoryPanel
         sessions={sessions}
         activeSessionId={activeSessionId}
+        error={historyError}
+        onSelect={selectSession}
+        onDelete={deleteSession}
+        onNewChat={newChat}
+      />
+      <ChatPanel
+        messages={messages}
         readyDocumentCount={readyDocumentCount}
         loading={chatLoading}
         error={chatError}
         onSend={send}
-        onSelectSession={selectSession}
-        onNewChat={() => { setActiveSessionId(undefined); setMessages([]); setChatError(null); }}
       />
     </div>
   );
