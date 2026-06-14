@@ -38,3 +38,16 @@ export interface ChatSession {
   title: string;
   updated_at?: string;
 }
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  full_name?: string | null;
+  auth_provider: string;
+}
+
+export interface Organization {
+  id: string;
+  name: string;
+  role: string;
+}
