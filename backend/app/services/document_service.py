@@ -1,6 +1,12 @@
+import shutil
+from pathlib import Path
+
 from sqlalchemy.orm import Session
 
+from app.config.settings import settings
 from app.models.document import Document
+from app.models.document_chunk import DocumentChunk
+from app.models.document_processing_job import DocumentProcessingJob
 
 
 def create_document_record(
@@ -81,7 +87,20 @@ def get_document_by_id(
     )
 
 
-def soft_delete_document(
+def _remove_document_artifacts(document: Document) -> None:
+    artifact_directories = {
+        Path(settings.EXTRACTED_TEXT_DIR) / str(document.user_id) / str(document.id),
+        Path(settings.PROCESSED_CHUNKS_DIR) / str(document.user_id) / str(document.id),
+        Path(settings.REDACTED_DOCUMENTS_DIR) / str(document.user_id) / str(document.id),
+        Path(document.storage_path).parent,
+    }
+
+    for directory in artifact_directories:
+        if directory.exists():
+            shutil.rmtree(directory)
+
+
+def delete_document_completely(
     db: Session,
     *,
     document_id: str,
@@ -96,12 +115,26 @@ def soft_delete_document(
     if document is None:
         return None
 
-    document.status = "deleted"
+    response_document = document
+    response_document.status = "deleted"
 
-    db.commit()
-    db.refresh(document)
+    try:
+        _remove_document_artifacts(document)
+        db.query(DocumentChunk).filter(
+            DocumentChunk.document_id == document_id,
+            DocumentChunk.user_id == user_id,
+        ).delete(synchronize_session=False)
+        db.query(DocumentProcessingJob).filter(
+            DocumentProcessingJob.document_id == document_id,
+            DocumentProcessingJob.user_id == user_id,
+        ).delete(synchronize_session=False)
+        db.delete(document)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
-    return document
+    return response_document
 
 
 def update_document_status(

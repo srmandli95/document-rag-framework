@@ -14,6 +14,8 @@ class DocumentMetadata(BaseModel):
     storage_provider: str
     storage_path: str
     status: str
+    display_status: str
+    failure_reason: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -21,6 +23,7 @@ class DocumentMetadata(BaseModel):
 
 
 class DocumentUploadResponse(DocumentMetadata):
+    job_id: str
     message: str
 
 

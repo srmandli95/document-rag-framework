@@ -70,7 +70,7 @@ def bm25_search(
         .filter(DocumentChunk.user_id == clean_user_id)
         .filter(DocumentChunk.status.in_(["created", "embedded"]))
         .filter(DocumentChunk.chunk_text.isnot(None))
-        .filter(Document.status != "deleted")
+        .filter(Document.status == "embedded")
         .all()
     )
 

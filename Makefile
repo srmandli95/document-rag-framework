@@ -4,10 +4,10 @@ install:
 	pipenv install --dev
 
 backend:
-	cd backend && PYTHONPATH=. pipenv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+	cd backend && DEV_AUTH_DISABLED=$${DEV_AUTH_DISABLED:-true} DEV_AUTH_USER_ID=$${DEV_AUTH_USER_ID:-local-user-123} PYTHONPATH=. pipenv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ui:
-	cd chainlit_ui && BACKEND_BASE_URL=http://localhost:8000 pipenv run chainlit run app.py --host 0.0.0.0 --port 8501
+	cd frontend && npm run dev
 
 build:
 	docker compose up -d --build

@@ -71,7 +71,7 @@ def _get_state(client: TestClient) -> str:
 
 
 def _extract_app_token(html: str) -> str:
-    match = re.search(r"/token ([^<\s]+)", html)
+    match = re.search(r"<pre>([^<\s]+)</pre>", html)
     assert match is not None
     return match.group(1)
 
@@ -204,7 +204,7 @@ def test_google_callback_returns_html_with_token_and_does_not_store_google_token
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
     assert "Google login successful" in response.text
-    assert "/token " in response.text
+    assert "rag_access_token" in response.text
     assert (
         "Local development only. In production, tokens should not be displayed in HTML."
         in response.text

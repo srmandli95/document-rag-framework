@@ -1,11 +1,21 @@
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user
 from app.config.settings import settings
-from app.db.database import get_db
+from app.db.database import SessionLocal, get_db
 from app.ingestion.chunking_service import chunk_and_store_document_text
 from app.ingestion.document_processing_service import process_document
 from app.ingestion.embedding_indexing_service import embed_document_chunks
@@ -32,13 +42,15 @@ from app.services.document_chunk_service import (
 )
 from app.services.document_service import (
     create_document_record,
+    delete_document_completely,
     get_document_by_id,
     get_documents_by_user,
-    soft_delete_document,
 )
 from app.services.document_processing_job_service import (
+    create_processing_job,
     get_processing_job_by_id,
     get_processing_jobs_by_document,
+    get_latest_processing_job_for_document,
 )
 from app.services.local_storage_service import LocalStorageService
 
@@ -139,7 +151,41 @@ async def _get_file_size_bytes(file: UploadFile) -> int:
     return file_size_bytes
 
 
-def _to_document_metadata(document) -> DocumentMetadata:
+def _display_status(document_status: str, job=None) -> str:
+    if document_status == "embedded":
+        return "ready"
+    if document_status == "failed" or getattr(job, "status", None) == "failed":
+        return "failed"
+
+    current_step = getattr(job, "current_step", None)
+    return {
+        "validate": "validating",
+        "extract": "extracting",
+        "chunk": "chunking",
+        "embed": "embedding",
+    }.get(
+        current_step,
+        {
+            "uploaded": "uploading",
+            "processing": "validating",
+            "extracted": "chunking",
+            "chunked": "embedding",
+        }.get(document_status, document_status),
+    )
+
+
+def _process_document_in_background(document_id: str, user_id: str, job_id: str) -> None:
+    db = SessionLocal()
+    try:
+        document = get_document_by_id(db=db, document_id=document_id, user_id=user_id)
+        job = get_processing_job_by_id(db, job_id, user_id)
+        if document is not None and job is not None:
+            process_document(db=db, document=document, force=False, job=job)
+    finally:
+        db.close()
+
+
+def _to_document_metadata(document, job=None) -> DocumentMetadata:
     return DocumentMetadata(
         document_id=document.id,
         user_id=document.user_id,
@@ -151,6 +197,8 @@ def _to_document_metadata(document) -> DocumentMetadata:
         storage_provider=document.storage_provider,
         storage_path=document.storage_path,
         status=document.status,
+        display_status=_display_status(document.status, job),
+        failure_reason=getattr(job, "error_message", None),
         created_at=document.created_at,
         updated_at=document.updated_at,
     )
@@ -237,6 +285,7 @@ def _get_owned_document_or_404(
 
 @router.post("/upload", response_model=DocumentUploadResponse)
 async def upload_document(
+    background_tasks: BackgroundTasks,
     category: str = Form(...),
     file: UploadFile = File(...),
     user_id: str | None = Form(default=None),  # Backward compatible, ignored.
@@ -260,10 +309,6 @@ async def upload_document(
 
     storage_service = LocalStorageService()
 
-    # Create DB record first or use service-created document ID?
-    # Your existing create_document_record appears to generate the ID itself.
-    # So we save with a temporary UUID-like folder only if needed by storage service.
-    # To preserve your current behavior, we use a generated storage document id.
     from uuid import uuid4
 
     storage_document_id = str(uuid4())
@@ -275,24 +320,49 @@ async def upload_document(
         original_file_name=file.filename,
     )
 
-    document = create_document_record(
-        db=db,
-        user_id=authenticated_user_id,
-        original_file_name=file.filename,
-        stored_file_name=storage_metadata["file_name"],
-        category=clean_category,
-        content_type=file.content_type or "application/octet-stream",
-        file_size_bytes=file_size_bytes,
-        storage_provider=storage_metadata["storage_provider"],
-        storage_path=storage_metadata["storage_path"],
-        status="uploaded",
+    try:
+        document = create_document_record(
+            db=db,
+            user_id=authenticated_user_id,
+            original_file_name=file.filename,
+            stored_file_name=storage_metadata["file_name"],
+            category=clean_category,
+            content_type=file.content_type or "application/octet-stream",
+            file_size_bytes=file_size_bytes,
+            storage_provider=storage_metadata["storage_provider"],
+            storage_path=storage_metadata["storage_path"],
+            status="uploaded",
+        )
+    except Exception:
+        storage_service.delete_file(storage_metadata["storage_path"])
+        raise
+
+    try:
+        job = create_processing_job(
+            db=db,
+            document_id=str(document.id),
+            user_id=authenticated_user_id,
+        )
+    except Exception:
+        delete_document_completely(
+            db=db,
+            document_id=str(document.id),
+            user_id=authenticated_user_id,
+        )
+        raise
+    background_tasks.add_task(
+        _process_document_in_background,
+        str(document.id),
+        authenticated_user_id,
+        str(job.id),
     )
 
-    metadata = _to_document_metadata(document)
+    metadata = _to_document_metadata(document, job)
 
     return DocumentUploadResponse(
         **metadata.model_dump(),
-        message="Document uploaded and metadata saved successfully",
+        job_id=str(job.id),
+        message="Document uploaded and processing started",
     )
 
 
@@ -345,10 +415,16 @@ def list_documents(
         ready_only=ready_only,
     )
 
-    document_metadata = [
-        _to_document_metadata(document)
-        for document in documents
-    ]
+    document_metadata = []
+    for document in documents:
+        latest_job = (
+            get_latest_processing_job_for_document(
+                db, str(document.id), authenticated_user_id
+            )
+            if document.status in {"processing", "failed"}
+            else None
+        )
+        document_metadata.append(_to_document_metadata(document, latest_job))
 
     return DocumentListResponse(
         user_id=authenticated_user_id,
@@ -415,7 +491,12 @@ def get_document(
         user_id=authenticated_user_id,
     )
 
-    metadata = _to_document_metadata(document)
+    latest_job = (
+        get_latest_processing_job_for_document(db, str(document.id), authenticated_user_id)
+        if document.status in {"processing", "failed"}
+        else None
+    )
+    metadata = _to_document_metadata(document, latest_job)
 
     return DocumentDetailResponse(
         **metadata.model_dump(),
@@ -455,12 +536,10 @@ def delete_document(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> DocumentDeleteResponse:
-    """
-    Soft-delete a document only if it belongs to the authenticated user.
-    """
+    """Permanently delete an owned document and all generated data."""
     authenticated_user_id = str(current_user.id)
 
-    document = soft_delete_document(
+    document = delete_document_completely(
         db=db,
         document_id=document_id,
         user_id=authenticated_user_id,
@@ -476,7 +555,7 @@ def delete_document(
         document_id=document.id,
         user_id=document.user_id,
         status=document.status,
-        message="Document soft deleted successfully",
+        message="Document deleted successfully",
     )
 
 

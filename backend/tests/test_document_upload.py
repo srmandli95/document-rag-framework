@@ -53,6 +53,15 @@ def test_upload_valid_text_file(monkeypatch):
         "app.api.document_routes.create_document_record",
         fake_create_document_record,
     )
+    monkeypatch.setattr(
+        "app.api.document_routes.create_processing_job",
+        lambda **kwargs: SimpleNamespace(
+            id="job-1", status="pending", current_step=None, error_message=None
+        ),
+    )
+    monkeypatch.setattr(
+        "app.api.document_routes._process_document_in_background", lambda *args: None
+    )
 
     file_content = "This is a synthetic test document for unit testing."
 
@@ -84,7 +93,8 @@ def test_upload_valid_text_file(monkeypatch):
     assert body["original_file_name"] == "test_document.txt"
     assert body["content_type"] == "text/plain"
     assert body["file_size_bytes"] == len(file_content)
-    assert body["message"] == "Document uploaded and metadata saved successfully"
+    assert body["job_id"] == "job-1"
+    assert body["message"] == "Document uploaded and processing started"
 
     saved_file_path = Path(body["storage_path"])
     assert saved_file_path.exists()
