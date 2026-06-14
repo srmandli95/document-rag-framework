@@ -27,7 +27,8 @@ asyncpg = "*"
 passlib = {extras = ["bcrypt"], version = "*"}
 python-jose = {extras = ["cryptography"], version = "*"}
 email-validator = "*"
-bcrypt = "<5.0.0"
+# Passlib 1.7 reads bcrypt.__about__, which bcrypt 4.1+ removed.
+bcrypt = "<4.1.0"
 authlib = "*"
 
 [dev-packages]
