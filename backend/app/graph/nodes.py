@@ -10,6 +10,7 @@ from app.generation.prompt_builder import (
     build_answer_prompt,
     build_query_rewrite_prompt,
     get_refusal_message,
+    strip_generated_source_metadata,
 )
 from app.graph.state import RAGState
 from app.reranking.reranking_service import rerank_hybrid_results
@@ -148,7 +149,9 @@ def generate_answer_node(state: RAGState) -> RAGState:
     )
 
     llm_client = get_llm_client()
-    generated_answer = _extract_llm_text(llm_client.generate(prompt)).strip()
+    generated_answer = strip_generated_source_metadata(
+        _extract_llm_text(llm_client.generate(prompt))
+    )
 
     state["generated_answer"] = generated_answer
     state["final_answer"] = generated_answer
