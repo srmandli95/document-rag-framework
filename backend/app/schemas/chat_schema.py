@@ -90,6 +90,12 @@ class ChatSessionListResponse(BaseModel):
     sessions: list[ChatSessionResponse]
 
 
+class ChatSessionDeleteResponse(BaseModel):
+    session_id: str
+    user_id: str
+    message: str
+
+
 class ChatSessionDetailResponse(BaseModel):
     session_id: str
     user_id: str
