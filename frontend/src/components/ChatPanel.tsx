@@ -1,16 +1,38 @@
 import { FormEvent, useState } from "react";
-import type { ChatMessage, ChatSession } from "../types";
+import type { ChatMessage } from "../types";
+
+function cleanAnswer(answer: string): string {
+  return answer
+    .split("\n")
+    .filter((line) => {
+      const cleanLine = line.trim();
+      return !/^(sources?|citations?)\s*:?\s*$/i.test(cleanLine)
+        && !/\bchunk\s+id\s*:/i.test(cleanLine);
+    })
+    .join("\n")
+    .trim();
+}
+
+function uniqueSources(citations: ChatMessage["citations"]) {
+  const sources = new Map<string, ChatMessage["citations"][number]>();
+
+  citations.forEach((citation, index) => {
+    const label = citation.document_name || citation.source || `Source ${index + 1}`;
+    const key = String(citation.document_id || label);
+    if (!sources.has(key)) {
+      sources.set(key, citation);
+    }
+  });
+
+  return [...sources.values()];
+}
 
 interface Props {
   messages: ChatMessage[];
-  sessions: ChatSession[];
-  activeSessionId?: string;
   readyDocumentCount: number;
   loading: boolean;
   error: string | null;
   onSend: (question: string) => Promise<void>;
-  onSelectSession: (sessionId: string) => Promise<void>;
-  onNewChat: () => void;
 }
 
 export function ChatPanel(props: Props) {
@@ -32,19 +54,6 @@ export function ChatPanel(props: Props) {
           <p className="eyebrow">Document RAG</p>
           <h2>Chat with your sources</h2>
         </div>
-        <div className="session-controls">
-          <select
-            aria-label="Chat session"
-            value={props.activeSessionId || ""}
-            onChange={(event) => event.target.value && void props.onSelectSession(event.target.value)}
-          >
-            <option value="">New chat</option>
-            {props.sessions.map((session) => (
-              <option key={session.session_id} value={session.session_id}>{session.title}</option>
-            ))}
-          </select>
-          <button type="button" className="secondary-button" onClick={props.onNewChat}>New chat</button>
-        </div>
       </header>
 
       <section className="messages" aria-live="polite">
@@ -63,14 +72,13 @@ export function ChatPanel(props: Props) {
             <div className="message user-message">{message.question}</div>
             {message.answer && (
               <div className="message assistant-message">
-                <p>{message.answer}</p>
-                {message.citations.length > 0 && (
+                <p>{cleanAnswer(message.answer)}</p>
+                {uniqueSources(message.citations).length > 0 && (
                   <div className="citations">
                     <strong>Sources</strong>
-                    {message.citations.map((citation, citationIndex) => (
-                      <span key={`${citation.chunk_id || "source"}-${citationIndex}`}>
+                    {uniqueSources(message.citations).map((citation, citationIndex) => (
+                      <span key={String(citation.document_id || citation.document_name || citation.source || citationIndex)}>
                         {citation.document_name || citation.source || `Source ${citationIndex + 1}`}
-                        {citation.page_number ? `, page ${citation.page_number}` : ""}
                       </span>
                     ))}
                   </div>

@@ -18,6 +18,7 @@ export interface DocumentRecord {
 }
 
 export interface Citation {
+  document_id?: string;
   document_name?: string;
   source?: string;
   page_number?: number | null;
@@ -35,4 +36,5 @@ export interface ChatMessage {
 export interface ChatSession {
   session_id: string;
   title: string;
+  updated_at?: string;
 }
