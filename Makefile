@@ -4,7 +4,7 @@ install:
 	pipenv install --dev
 
 backend:
-	cd backend && PYTHONPATH=. pipenv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+	cd backend && DEV_AUTH_DISABLED=$${DEV_AUTH_DISABLED:-true} DEV_AUTH_USER_ID=$${DEV_AUTH_USER_ID:-local-user-123} PYTHONPATH=. pipenv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ui:
 	cd frontend && npm run dev

@@ -27,6 +27,8 @@ services:
     environment:
       APP_NAME: Document RAG
       DATABASE_URL: postgresql+psycopg2://personal_policy_rag_assistant:personal_policy_rag_assistant@postgres:5432/personal_policy_rag_assistant
+      DEV_AUTH_DISABLED: ${DEV_AUTH_DISABLED:-true}
+      DEV_AUTH_USER_ID: ${DEV_AUTH_USER_ID:-local-user-123}
     ports:
       - "8000:8000"
     volumes:
