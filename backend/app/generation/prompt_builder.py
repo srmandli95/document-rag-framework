@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+import re
 from typing import Any
 
 import yaml
@@ -84,3 +85,20 @@ def get_refusal_message() -> str:
         "refusal_message",
         "I could not find enough evidence in your uploaded documents to answer this question.",
     ).strip()
+
+
+def strip_generated_source_metadata(answer: str) -> str:
+    """Remove source metadata that belongs in the structured citations field."""
+    cleaned_lines: list[str] = []
+
+    for line in answer.strip().splitlines():
+        stripped = line.strip()
+        if re.match(r"^(sources?|citations?)\s*:", stripped, flags=re.IGNORECASE):
+            continue
+        if re.match(r"^(sources?|citations?)\s*$", stripped, flags=re.IGNORECASE):
+            continue
+        if re.search(r"\bchunk\s+id\s*:", stripped, flags=re.IGNORECASE):
+            continue
+        cleaned_lines.append(line)
+
+    return "\n".join(cleaned_lines).strip()

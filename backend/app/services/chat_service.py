@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chat_message import ChatMessage
@@ -167,3 +167,29 @@ async def get_chat_message_by_id(
     )
 
     return result.scalar_one_or_none()
+
+
+async def delete_chat_session(
+    db: AsyncSession,
+    session_id: str,
+    user_id: str,
+) -> ChatSession | None:
+    chat_session = await get_chat_session(
+        db=db,
+        session_id=session_id,
+        user_id=user_id,
+    )
+
+    if chat_session is None:
+        return None
+
+    await db.execute(
+        delete(ChatMessage).where(
+            ChatMessage.session_id == session_id,
+            ChatMessage.user_id == user_id,
+        )
+    )
+    await db.delete(chat_session)
+    await db.commit()
+
+    return chat_session

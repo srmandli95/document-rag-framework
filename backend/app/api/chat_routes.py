@@ -17,6 +17,7 @@ from app.schemas.chat_schema import (
     AskResponse,
     ChatMessageEvidenceResponse,
     ChatMessageResponse,
+    ChatSessionDeleteResponse,
     ChatSessionDetailResponse,
     ChatSessionListResponse,
     ChatSessionResponse,
@@ -189,6 +190,35 @@ async def list_chat_sessions(
             _to_chat_session_response(session)
             for session in sessions
         ],
+    )
+
+
+@router.delete(
+    "/sessions/{session_id}",
+    response_model=ChatSessionDeleteResponse,
+)
+async def delete_chat_session(
+    session_id: str,
+    async_db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
+) -> ChatSessionDeleteResponse:
+    user_id = str(current_user.id)
+    chat_session = await chat_service.delete_chat_session(
+        db=async_db,
+        session_id=session_id,
+        user_id=user_id,
+    )
+
+    if chat_session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chat session not found",
+        )
+
+    return ChatSessionDeleteResponse(
+        session_id=chat_session.id,
+        user_id=chat_session.user_id,
+        message="Chat session deleted successfully",
     )
 
 

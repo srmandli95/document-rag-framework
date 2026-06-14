@@ -32,7 +32,9 @@ answer_generation_prompt: |
   - Do not make up facts.
   - If the evidence is insufficient, refuse using the refusal message.
   - Include a short answer first.
-  - Then include sources using the citation information provided.
+  - Return only the answer text.
+  - Do not include source labels, document names, chunk IDs, or citation metadata in the answer.
+  - Citations are displayed separately by the application.
 
   Answer:
 

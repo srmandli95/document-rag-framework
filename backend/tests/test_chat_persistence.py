@@ -41,6 +41,7 @@ class FakeAsyncDB:
         self.refreshed = []
         self.execute_results = execute_results or []
         self.execute_calls = []
+        self.deleted = []
 
     def add(self, record):
         self.added.append(record)
@@ -58,6 +59,9 @@ class FakeAsyncDB:
             return self.execute_results.pop(0)
 
         return FakeExecuteResult()
+
+    async def delete(self, record):
+        self.deleted.append(record)
 
 
 @pytest.mark.asyncio
@@ -405,6 +409,39 @@ async def test_get_chat_messages_by_session_returns_messages_scoped_to_user():
     assert result == messages
 
 
+@pytest.mark.asyncio
+async def test_delete_chat_session_removes_owned_session_and_messages():
+    existing_session = ChatSession(
+        id="session-1",
+        user_id="user-1",
+        title="Existing session",
+    )
+    db = FakeAsyncDB(
+        execute_results=[
+            FakeExecuteResult(scalar_one=existing_session),
+            FakeExecuteResult(),
+        ]
+    )
+
+    deleted = await chat_service.delete_chat_session(db, "session-1", "user-1")
+
+    assert deleted == existing_session
+    assert db.deleted == [existing_session]
+    assert db.committed is True
+    assert len(db.execute_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_delete_chat_session_returns_none_for_other_user():
+    db = FakeAsyncDB(execute_results=[FakeExecuteResult(scalar_one=None)])
+
+    deleted = await chat_service.delete_chat_session(db, "session-1", "other-user")
+
+    assert deleted is None
+    assert db.deleted == []
+    assert db.committed is False
+
+
 def override_async_db():
     async def _dependency():
         yield MagicMock()
@@ -560,6 +597,41 @@ def test_user_cannot_access_other_user_session(monkeypatch):
     client = TestClient(app)
     response = client.get("/chat/sessions/session-owned-by-b?user_id=user-a")
 
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+
+
+def test_delete_chat_session_route(monkeypatch):
+    from app.api import chat_routes
+
+    fake_session = SimpleNamespace(id="session-1", user_id="user-1")
+
+    async def fake_delete_chat_session(db, session_id, user_id):
+        assert session_id == "session-1"
+        assert user_id == "user-1"
+        return fake_session
+
+    monkeypatch.setattr(chat_routes.chat_service, "delete_chat_session", fake_delete_chat_session)
+    app.dependency_overrides[get_async_db] = override_async_db()
+
+    response = TestClient(app).delete("/chat/sessions/session-1?user_id=user-1")
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["session_id"] == "session-1"
+
+
+def test_user_cannot_delete_other_user_session(monkeypatch):
+    from app.api import chat_routes
+
+    async def fake_delete_chat_session(db, session_id, user_id):
+        return None
+
+    monkeypatch.setattr(chat_routes.chat_service, "delete_chat_session", fake_delete_chat_session)
+    app.dependency_overrides[get_async_db] = override_async_db()
+
+    response = TestClient(app).delete("/chat/sessions/session-owned-by-b?user_id=user-a")
     app.dependency_overrides.clear()
 
     assert response.status_code == 404

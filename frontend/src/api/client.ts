@@ -51,6 +51,10 @@ export const api = {
     return data.messages;
   },
 
+  async deleteSession(sessionId: string): Promise<void> {
+    await request(`/chat/sessions/${sessionId}`, { method: "DELETE" });
+  },
+
   async ask(question: string, sessionId?: string): Promise<ChatMessage & { session_id: string }> {
     const data = await request<{
       message_id: string;

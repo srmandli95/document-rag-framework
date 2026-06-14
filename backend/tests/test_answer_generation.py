@@ -1,8 +1,19 @@
 from app.generation.answer_generator import generate_answer_from_evidence
+from app.generation.prompt_builder import strip_generated_source_metadata
 
 
 class FakeDB:
     pass
+
+
+def test_strip_generated_source_metadata_removes_chunk_details():
+    answer = (
+        "The late fee is 2%.\n\n"
+        "Source: DTE_Energy_Resource_Guide.docx, Chunk ID: chunk-1\n"
+        "Sources"
+    )
+
+    assert strip_generated_source_metadata(answer) == "The late fee is 2%."
 
 
 def test_generate_answer_from_evidence_returns_refusal_when_no_evidence(monkeypatch):
