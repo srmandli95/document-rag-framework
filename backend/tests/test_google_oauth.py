@@ -1,4 +1,3 @@
-import re
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse
 
@@ -68,12 +67,6 @@ def _get_state(client: TestClient) -> str:
     assert response.status_code == 200
     authorization_url = response.json()["authorization_url"]
     return parse_qs(urlparse(authorization_url).query)["state"][0]
-
-
-def _extract_app_token(html: str) -> str:
-    match = re.search(r"<pre>([^<\s]+)</pre>", html)
-    assert match is not None
-    return match.group(1)
 
 
 def test_google_login_returns_503_when_not_configured(client, monkeypatch):
@@ -152,10 +145,10 @@ def test_google_callback_rejects_invalid_state(client, configured_google):
     )
 
     assert response.status_code == 400
-    assert "Invalid or expired Google OAuth state" in response.json()["detail"]
+    assert "did not match this browser session" in response.json()["detail"]
 
 
-def test_google_callback_returns_html_with_token_and_does_not_store_google_token(
+def test_google_callback_sets_secure_session_and_does_not_store_google_token(
     client,
     configured_google,
     monkeypatch,
@@ -199,18 +192,13 @@ def test_google_callback_returns_html_with_token_and_does_not_store_google_token
     response = client.get(
         "/auth/google/callback",
         params={"code": "google-code", "state": _get_state(client)},
+        follow_redirects=False,
     )
 
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("text/html")
-    assert "Google login successful" in response.text
-    assert "rag_access_token" in response.text
-    assert (
-        "Local development only. In production, tokens should not be displayed in HTML."
-        in response.text
-    )
-    assert "oauth@example.com" in response.text
-    assert "google" in response.text
+    assert response.status_code == 307
+    assert response.headers["location"] == settings.FRONTEND_URL
+    assert settings.AUTH_COOKIE_NAME in response.cookies
+    assert "httponly" in response.headers["set-cookie"].lower()
     assert "google-access-token" not in response.text
     assert "refresh_token" not in captured_user_args
     assert "access_token" not in captured_user_args
@@ -278,15 +266,11 @@ def test_google_callback_issues_app_jwt_accepted_by_auth_me(
     callback_response = client.get(
         "/auth/google/callback",
         params={"code": "google-code", "state": _get_state(client)},
+        follow_redirects=False,
     )
-    app_token = _extract_app_token(callback_response.text)
+    me_response = client.get("/auth/me")
 
-    me_response = client.get(
-        "/auth/me",
-        headers={"Authorization": f"Bearer {app_token}"},
-    )
-
-    assert callback_response.status_code == 200
+    assert callback_response.status_code == 307
     assert me_response.status_code == 200
     assert me_response.json()["email"] == "oauth@example.com"
     assert me_response.json()["auth_provider"] == "google"

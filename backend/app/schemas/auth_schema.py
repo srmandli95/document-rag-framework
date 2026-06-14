@@ -26,3 +26,27 @@ class AuthTokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: AuthUserResponse
+
+
+class OrganizationCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+
+
+class OrganizationSelectRequest(BaseModel):
+    organization_id: str | None = None
+
+
+class OrganizationMemberAddRequest(BaseModel):
+    email: EmailStr
+    role: str = "member"
+
+
+class OrganizationResponse(BaseModel):
+    id: str
+    name: str
+    role: str
+
+
+class OrganizationListResponse(BaseModel):
+    organizations: list[OrganizationResponse]
+    active_organization_id: str | None = None
