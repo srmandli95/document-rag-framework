@@ -13,11 +13,7 @@ from fastapi import (
 )
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import (
-    get_current_user,
-    get_data_scope_id,
-    require_data_scope_editor,
-)
+from app.auth.dependencies import get_current_user
 from app.config.settings import settings
 from app.db.database import SessionLocal, get_db
 from app.ingestion.chunking_service import chunk_and_store_document_text
@@ -304,8 +300,7 @@ async def upload_document(
     - user_id from form is ignored.
     - document owner is current_user.id.
     """
-    authenticated_user_id = get_data_scope_id(current_user)
-    require_data_scope_editor(current_user)
+    authenticated_user_id = str(current_user.id)
     clean_category = _validate_category(category)
 
     _validate_file(file)
@@ -388,7 +383,7 @@ def list_documents(
     - JWT is required.
     - query user_id is ignored.
     """
-    authenticated_user_id = get_data_scope_id(current_user)
+    authenticated_user_id = str(current_user.id)
     clean_status = status_filter.strip() if status_filter else None
     clean_category = category.strip() if category else None
     clean_search = search.strip() if search else None
@@ -447,7 +442,7 @@ def get_processing_job_detail(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> DocumentProcessingJobResponse:
-    job = get_processing_job_by_id(db, job_id, get_data_scope_id(current_user))
+    job = get_processing_job_by_id(db, job_id, str(current_user.id))
 
     if job is None:
         raise HTTPException(
@@ -467,7 +462,7 @@ def get_document_chunk_detail(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> DocumentChunkDetailResponse:
-    chunk = get_chunk_by_id(db, chunk_id, get_data_scope_id(current_user))
+    chunk = get_chunk_by_id(db, chunk_id, str(current_user.id))
 
     if chunk is None:
         raise HTTPException(
@@ -488,7 +483,7 @@ def get_document(
     """
     Get a single document only if it belongs to the authenticated user.
     """
-    authenticated_user_id = get_data_scope_id(current_user)
+    authenticated_user_id = str(current_user.id)
 
     document = _get_owned_document_or_404(
         db=db,
@@ -518,7 +513,7 @@ def list_document_chunks(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> DocumentChunkListResponse:
-    authenticated_user_id = get_data_scope_id(current_user)
+    authenticated_user_id = str(current_user.id)
     _get_owned_document_or_404(db, document_id, authenticated_user_id)
 
     chunks = get_chunks_by_document_for_user(
@@ -542,8 +537,7 @@ def delete_document(
     current_user: User = Depends(get_current_user),
 ) -> DocumentDeleteResponse:
     """Permanently delete an owned document and all generated data."""
-    require_data_scope_editor(current_user)
-    authenticated_user_id = get_data_scope_id(current_user)
+    authenticated_user_id = str(current_user.id)
 
     document = delete_document_completely(
         db=db,
@@ -578,8 +572,7 @@ def extract_document_text(
     """
     Extract text from a document owned by the authenticated user.
     """
-    require_data_scope_editor(current_user)
-    authenticated_user_id = get_data_scope_id(current_user)
+    authenticated_user_id = str(current_user.id)
 
     document = _get_owned_document_or_404(
         db=db,
@@ -608,8 +601,7 @@ def chunk_document_text(
     """
     Chunk a document owned by the authenticated user.
     """
-    require_data_scope_editor(current_user)
-    authenticated_user_id = get_data_scope_id(current_user)
+    authenticated_user_id = str(current_user.id)
 
     document = _get_owned_document_or_404(
         db=db,
@@ -641,8 +633,7 @@ def embed_document(
     """
     Embed chunks for a document owned by the authenticated user.
     """
-    require_data_scope_editor(current_user)
-    authenticated_user_id = get_data_scope_id(current_user)
+    authenticated_user_id = str(current_user.id)
 
     document = _get_owned_document_or_404(
         db=db,
@@ -698,8 +689,7 @@ def process_uploaded_document(
     Header:
     Authorization: Bearer <token>
     """
-    require_data_scope_editor(current_user)
-    authenticated_user_id = get_data_scope_id(current_user)
+    authenticated_user_id = str(current_user.id)
 
     document = _get_owned_document_or_404(
         db=db,
@@ -723,7 +713,7 @@ def list_document_processing_jobs(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> DocumentProcessingJobListResponse:
-    authenticated_user_id = get_data_scope_id(current_user)
+    authenticated_user_id = str(current_user.id)
     _get_owned_document_or_404(db, document_id, authenticated_user_id)
     jobs = get_processing_jobs_by_document(db, document_id, authenticated_user_id)
 
