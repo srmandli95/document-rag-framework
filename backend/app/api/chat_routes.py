@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import get_current_user, get_data_scope_id
+from app.auth.dependencies import get_current_user
 from app.db.database import get_async_db, get_db
 from app.graph.rag_graph import run_rag_workflow
 from app.models.user import User
@@ -120,7 +120,7 @@ async def ask_question(
     try:
         result = run_rag_workflow(
             db=db,
-            user_id=get_data_scope_id(current_user),
+            user_id=str(current_user.id),
             question=question,
             top_k=retrieval_settings.top_k,
             hybrid_top_k=retrieval_settings.hybrid_top_k,
