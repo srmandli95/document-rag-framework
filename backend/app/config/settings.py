@@ -39,7 +39,6 @@ class Settings(BaseSettings):
     OAUTH_STATE_COOKIE_NAME: str = "rag_oauth_state"
     AUTH_COOKIE_SECURE: bool = False
     FRONTEND_URL: str = "http://localhost:3000"
-    ALLOW_LOCAL_REGISTRATION: bool = True
 
     GOOGLE_CLIENT_ID: str | None = None
     GOOGLE_CLIENT_SECRET: str | None = None
@@ -50,9 +49,6 @@ class Settings(BaseSettings):
     MICROSOFT_REDIRECT_URI: str | None = None
 
     MAX_UPLOAD_SIZE_MB: int = 250
-
-    DEV_AUTH_DISABLED: bool = False
-    DEV_AUTH_USER_ID: str = "local-user-123"
 
     model_config = SettingsConfigDict(
         env_file=".env",
