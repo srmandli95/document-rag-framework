@@ -24,11 +24,7 @@ openai = "*"
 pyyaml = "*"
 langgraph = "*"
 asyncpg = "*"
-passlib = {extras = ["bcrypt"], version = "*"}
 python-jose = {extras = ["cryptography"], version = "*"}
-email-validator = "*"
-# Passlib 1.7 reads bcrypt.__about__, which bcrypt 4.1+ removed.
-bcrypt = "<4.1.0"
 authlib = "*"
 
 [dev-packages]
