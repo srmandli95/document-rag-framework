@@ -16,54 +16,21 @@ from app.auth.oauth_google import (
 )
 from app.db.database import get_db
 from app.models.user import User
-from app.schemas.auth_schema import (
-    AuthTokenResponse,
-    AuthUserResponse,
-    LoginRequest,
-    OrganizationCreateRequest,
-    OrganizationListResponse,
-    OrganizationMemberAddRequest,
-    OrganizationResponse,
-    OrganizationSelectRequest,
-    RegisterRequest,
-)
-from app.services.user_service import (
-    authenticate_local_user,
-    create_local_user,
-    get_user_by_email,
-    get_or_create_oauth_user,
-)
-from app.services.organization_service import (
-    add_organization_member,
-    create_organization,
-    get_membership,
-    list_user_organizations,
-)
+from app.schemas.auth_schema import AuthUserResponse
+from app.services.user_service import get_or_create_oauth_user
 from app.config.settings import settings
 
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
 
-def _build_token_response(
-    user: User,
-    organization_id: str | None = None,
-) -> AuthTokenResponse:
+def _build_access_token(user: User) -> str:
     token_data = {
         "sub": user.id,
         "email": user.email,
         "auth_provider": user.auth_provider,
     }
-    if organization_id:
-        token_data["org_id"] = organization_id
-    access_token = create_access_token(
-        data=token_data
-    )
-    return AuthTokenResponse(
-        access_token=access_token,
-        token_type="bearer",
-        user=AuthUserResponse.model_validate(user),
-    )
+    return create_access_token(data=token_data)
 
 
 def _set_session_cookie(response: Response, access_token: str) -> None:
@@ -97,100 +64,6 @@ def _require_google_oauth_configured() -> None:
         )
 
 
-@router.post("/register", response_model=AuthTokenResponse)
-def register(
-    request: RegisterRequest,
-    response: Response,
-    db: Session = Depends(get_db),
-) -> AuthTokenResponse:
-    if not settings.ALLOW_LOCAL_REGISTRATION:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Local registration is disabled",
-        )
-    existing_user = get_user_by_email(db, request.email)
-
-    if existing_user is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="User with this email already exists",
-        )
-
-    try:
-        user = create_local_user(
-            db=db,
-            email=request.email,
-            password=request.password,
-            full_name=request.full_name,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        ) from exc
-
-    auth_response = _build_token_response(user)
-    _set_session_cookie(response, auth_response.access_token)
-    return auth_response
-
-
-@router.post(
-    "/organizations/{organization_id}/members",
-    response_model=OrganizationResponse,
-)
-def add_member(
-    organization_id: str,
-    request: OrganizationMemberAddRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> OrganizationResponse:
-    actor_membership = get_membership(
-        db,
-        user_id=str(current_user.id),
-        organization_id=organization_id,
-    )
-    if actor_membership is None or actor_membership.role != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Organization admin access is required")
-    invited_user = get_user_by_email(db, request.email)
-    if invited_user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User must sign in before being added")
-    membership = add_organization_member(
-        db,
-        organization_id=organization_id,
-        user_id=str(invited_user.id),
-        role=request.role,
-    )
-    organization = next(
-        org for org, _ in list_user_organizations(db, user_id=str(invited_user.id))
-        if org.id == organization_id
-    )
-    return OrganizationResponse(id=organization.id, name=organization.name, role=membership.role)
-
-
-@router.post("/login", response_model=AuthTokenResponse)
-def login(
-    request: LoginRequest,
-    response: Response,
-    db: Session = Depends(get_db),
-) -> AuthTokenResponse:
-    user = authenticate_local_user(
-        db=db,
-        email=request.email,
-        password=request.password,
-    )
-
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    auth_response = _build_token_response(user)
-    _set_session_cookie(response, auth_response.access_token)
-    return auth_response
-
-
 @router.get("/me", response_model=AuthUserResponse)
 def me(
     current_user: User = Depends(get_current_user),
@@ -201,59 +74,6 @@ def me(
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 def logout(response: Response) -> None:
     response.delete_cookie(settings.AUTH_COOKIE_NAME, path="/")
-
-
-@router.get("/organizations", response_model=OrganizationListResponse)
-def organizations(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> OrganizationListResponse:
-    rows = list_user_organizations(db, user_id=str(current_user.id))
-    return OrganizationListResponse(
-        organizations=[
-            OrganizationResponse(id=org.id, name=org.name, role=membership.role)
-            for org, membership in rows
-        ],
-        active_organization_id=getattr(current_user, "active_organization_id", None),
-    )
-
-
-@router.post("/organizations", response_model=OrganizationResponse)
-def add_organization(
-    request: OrganizationCreateRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> OrganizationResponse:
-    organization = create_organization(
-        db,
-        name=request.name,
-        owner_user_id=str(current_user.id),
-    )
-    return OrganizationResponse(id=organization.id, name=organization.name, role="admin")
-
-
-@router.post("/organizations/select", response_model=AuthTokenResponse)
-def select_organization(
-    request: OrganizationSelectRequest,
-    response: Response,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> AuthTokenResponse:
-    if request.organization_id is None:
-        auth_response = _build_token_response(current_user)
-        _set_session_cookie(response, auth_response.access_token)
-        return auth_response
-
-    membership = get_membership(
-        db,
-        user_id=str(current_user.id),
-        organization_id=request.organization_id,
-    )
-    if membership is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
-    auth_response = _build_token_response(current_user, request.organization_id)
-    _set_session_cookie(response, auth_response.access_token)
-    return auth_response
 
 
 @router.get("/google/login")
@@ -339,9 +159,9 @@ async def google_callback(
             detail=str(exc),
         ) from exc
 
-    auth_response = _build_token_response(user)
+    access_token = _build_access_token(user)
     response = RedirectResponse(settings.FRONTEND_URL)
-    _set_session_cookie(response, auth_response.access_token)
+    _set_session_cookie(response, access_token)
     response.delete_cookie(
         settings.OAUTH_STATE_COOKIE_NAME,
         path="/auth/google/callback",
