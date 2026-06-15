@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import get_current_user, get_data_scope_id
+from app.auth.dependencies import get_current_user
 from app.db.database import get_db
 from app.models.user import User
 from app.retrieval.bm25_retriever import bm25_search
@@ -61,7 +61,7 @@ def vector_search_endpoint(
     - Ignores request.user_id if older clients still send it.
     - Uses current_user.id as the real user_id.
     """
-    user_id = get_data_scope_id(current_user)
+    user_id = str(current_user.id)
     query = _validate_query(request.query)
     top_k = _safe_positive_top_k(request.top_k, default=5, maximum=20)
 
@@ -101,7 +101,7 @@ def search_bm25_chunks(
     - Ignores request.user_id if older clients still send it.
     - Uses current_user.id as the real user_id.
     """
-    user_id = get_data_scope_id(current_user)
+    user_id = str(current_user.id)
     query = _validate_query(request.query)
     top_k = _safe_positive_top_k(request.top_k, default=5, maximum=20)
 
@@ -141,7 +141,7 @@ def search_hybrid_chunks(
     - Ignores request.user_id if older clients still send it.
     - Uses current_user.id as the real user_id.
     """
-    user_id = get_data_scope_id(current_user)
+    user_id = str(current_user.id)
     query = _validate_query(request.query)
 
     try:
@@ -193,7 +193,7 @@ def search_reranked_chunks(
     - Ignores request.user_id if older clients still send it.
     - Uses current_user.id as the real user_id.
     """
-    user_id = get_data_scope_id(current_user)
+    user_id = str(current_user.id)
     query = _validate_query(request.query)
 
     try:
@@ -239,7 +239,7 @@ def diagnose_retrieval_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> RetrievalDiagnosticsResponse:
-    user_id = get_data_scope_id(current_user)
+    user_id = str(current_user.id)
     query = _validate_query(request.query)
     try:
         retrieval_settings = validate_retrieval_settings(
