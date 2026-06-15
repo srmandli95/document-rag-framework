@@ -12,7 +12,6 @@ from app.models.chat_session import ChatSession
 from app.models.chat_message import ChatMessage
 from app.models.document_processing_job import DocumentProcessingJob
 from app.models.user import User
-from app.models.organization import Organization, OrganizationMembership
 from app.config.settings import settings
 from app.db.database import Base, engine
 from app.models import Document, DocumentChunk
