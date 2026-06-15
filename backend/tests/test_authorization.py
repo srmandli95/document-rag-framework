@@ -36,6 +36,18 @@ def override_user(user_id: str):
     return _override
 
 
+def registered_route_paths(routes):
+    paths = set()
+    for route in routes:
+        if hasattr(route, "path"):
+            paths.add(route.path)
+        if hasattr(route, "original_router"):
+            paths.update(registered_route_paths(route.original_router.routes))
+        if hasattr(route, "routes"):
+            paths.update(registered_route_paths(route.routes))
+    return paths
+
+
 def test_get_documents_without_token_returns_401(client):
     response = client.get("/documents")
 
@@ -80,7 +92,7 @@ def test_health_route_remains_public(client):
 
 
 def test_retrieval_route_paths_remain_unchanged():
-    registered_paths = {route.path for route in app.routes}
+    registered_paths = registered_route_paths(app.routes)
 
     assert {
         "/search/vector",
