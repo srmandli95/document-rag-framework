@@ -120,7 +120,7 @@ async def ask_question(
     try:
         result = run_rag_workflow(
             db=db,
-            user_id=user_id,
+            user_id=str(current_user.id),
             question=question,
             top_k=retrieval_settings.top_k,
             hybrid_top_k=retrieval_settings.hybrid_top_k,

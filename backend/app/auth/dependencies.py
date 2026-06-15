@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Cookie, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -9,21 +9,6 @@ from app.models.user import User
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
-
-
-class DevAuthUser:
-    """
-    Local-only user object used only when DEV_AUTH_DISABLED=True.
-    It intentionally exposes the same fields routes usually need.
-    """
-
-    def __init__(self, user_id: str):
-        self.id = user_id
-        self.email = "dev-auth-disabled@example.local"
-        self.full_name = "Local Dev User"
-        self.is_active = True
-        self.auth_provider = "dev"
-        self.provider_user_id = user_id
 
 
 def _credentials_exception(detail: str) -> HTTPException:
@@ -51,44 +36,49 @@ def _get_user_from_token(token: str, db: Session) -> User:
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    session_cookie: str | None = Cookie(default=None, alias=settings.AUTH_COOKIE_NAME),
     db: Session = Depends(get_db),
-) -> User | DevAuthUser:
+) -> User:
     """
     Protected-route dependency.
 
     Requires:
     Authorization: Bearer <access_token>
 
-    Local-only bypass:
-    If DEV_AUTH_DISABLED=True, this returns DEV_AUTH_USER_ID without requiring a token.
-    Keep DEV_AUTH_DISABLED=False by default.
+    Browser requests normally authenticate with the HttpOnly session cookie.
+    Bearer tokens remain supported for API clients.
     """
-    if settings.DEV_AUTH_DISABLED:
-        return DevAuthUser(settings.DEV_AUTH_USER_ID)
-
-    if credentials is None or credentials.scheme.lower() != "bearer":
+    token = (
+        credentials.credentials
+        if credentials is not None and credentials.scheme.lower() == "bearer"
+        else session_cookie if isinstance(session_cookie, str) else None
+    )
+    if not token:
         raise _credentials_exception("Authentication required")
 
-    return _get_user_from_token(credentials.credentials, db)
+    return _get_user_from_token(token, db)
 
 
 def get_optional_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    session_cookie: str | None = Cookie(default=None, alias=settings.AUTH_COOKIE_NAME),
     db: Session = Depends(get_db),
-) -> User | DevAuthUser | None:
-    if settings.DEV_AUTH_DISABLED:
-        return DevAuthUser(settings.DEV_AUTH_USER_ID)
-
-    if credentials is None or credentials.scheme.lower() != "bearer":
+) -> User | None:
+    token = (
+        credentials.credentials
+        if credentials is not None and credentials.scheme.lower() == "bearer"
+        else session_cookie if isinstance(session_cookie, str) else None
+    )
+    if not token:
         return None
 
     try:
-        return _get_user_from_token(credentials.credentials, db)
+        return _get_user_from_token(token, db)
     except HTTPException:
         return None
 
 
 def get_current_user_id(
-    current_user: User | DevAuthUser = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> str:
     return str(current_user.id)

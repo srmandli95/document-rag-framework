@@ -251,8 +251,20 @@ def test_message_evidence_route_supports_empty_retrieved_chunks(evidence_client,
     assert response.json()["evidence_chunk_count"] == 0
 
 
+def registered_route_paths(routes):
+    paths = set()
+    for route in routes:
+        if hasattr(route, "path"):
+            paths.add(route.path)
+        if hasattr(route, "original_router"):
+            paths.update(registered_route_paths(route.original_router.routes))
+        if hasattr(route, "routes"):
+            paths.update(registered_route_paths(route.routes))
+    return paths
+
+
 def test_evidence_routes_are_registered():
-    paths = {route.path for route in app.routes}
+    paths = registered_route_paths(app.routes)
 
     assert "/documents/chunks/{chunk_id}" in paths
     assert "/documents/{document_id}/chunks" in paths

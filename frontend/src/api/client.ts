@@ -1,17 +1,12 @@
-import type { ChatMessage, ChatSession, Citation, DocumentRecord } from "../types";
+import type { AuthUser, ChatMessage, ChatSession, Citation, DocumentRecord } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
-
-function authHeaders(): HeadersInit {
-  const token = localStorage.getItem("rag_access_token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
+    credentials: "include",
     headers: {
-      ...authHeaders(),
       ...options.headers,
     },
   });
@@ -21,10 +16,27 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new Error(payload?.detail || `Request failed (${response.status})`);
   }
 
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   return response.json() as Promise<T>;
 }
 
 export const api = {
+  async me(): Promise<AuthUser> {
+    return request<AuthUser>("/auth/me");
+  },
+
+  async logout(): Promise<void> {
+    await request("/auth/logout", { method: "POST" });
+  },
+
+  async googleLogin(): Promise<void> {
+    const data = await request<{ authorization_url: string }>("/auth/google/login");
+    window.location.assign(data.authorization_url);
+  },
+
   async listDocuments(): Promise<DocumentRecord[]> {
     const data = await request<{ documents: DocumentRecord[] }>("/documents");
     return data.documents;
