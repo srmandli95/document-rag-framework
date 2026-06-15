@@ -45,9 +45,3 @@ export interface AuthUser {
   full_name?: string | null;
   auth_provider: string;
 }
-
-export interface Organization {
-  id: string;
-  name: string;
-  role: string;
-}
