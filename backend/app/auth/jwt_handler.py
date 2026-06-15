@@ -11,7 +11,6 @@ def _sanitize_token_value(value: Any) -> Any:
         return {
             key: _sanitize_token_value(item)
             for key, item in value.items()
-            if key != "hashed_password"
         }
 
     if isinstance(value, list):
