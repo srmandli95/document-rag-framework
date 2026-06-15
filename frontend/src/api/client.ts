@@ -1,18 +1,12 @@
-import type { AuthUser, ChatMessage, ChatSession, Citation, DocumentRecord, Organization } from "../types";
+import type { AuthUser, ChatMessage, ChatSession, Citation, DocumentRecord } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
-
-function authHeaders(): HeadersInit {
-  const token = localStorage.getItem("rag_access_token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
     credentials: "include",
     headers: {
-      ...authHeaders(),
       ...options.headers,
     },
   });
@@ -20,6 +14,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
     throw new Error(payload?.detail || `Request failed (${response.status})`);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
   }
 
   return response.json() as Promise<T>;
@@ -30,54 +28,13 @@ export const api = {
     return request<AuthUser>("/auth/me");
   },
 
-  async login(email: string, password: string): Promise<AuthUser> {
-    const data = await request<{ user: AuthUser }>("/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
-    localStorage.removeItem("rag_access_token");
-    return data.user;
-  },
-
-  async register(email: string, password: string, fullName: string): Promise<AuthUser> {
-    const data = await request<{ user: AuthUser }>("/auth/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, full_name: fullName || null }),
-    });
-    localStorage.removeItem("rag_access_token");
-    return data.user;
-  },
-
   async logout(): Promise<void> {
     await request("/auth/logout", { method: "POST" });
-    localStorage.removeItem("rag_access_token");
   },
 
   async googleLogin(): Promise<void> {
     const data = await request<{ authorization_url: string }>("/auth/google/login");
     window.location.assign(data.authorization_url);
-  },
-
-  async listOrganizations(): Promise<{ organizations: Organization[]; active_organization_id?: string | null }> {
-    return request("/auth/organizations");
-  },
-
-  async createOrganization(name: string): Promise<Organization> {
-    return request("/auth/organizations", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-    });
-  },
-
-  async selectOrganization(organizationId: string | null): Promise<void> {
-    await request("/auth/organizations/select", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ organization_id: organizationId }),
-    });
   },
 
   async listDocuments(): Promise<DocumentRecord[]> {
