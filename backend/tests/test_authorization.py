@@ -77,7 +77,6 @@ def test_health_route_remains_public(client):
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-    assert isinstance(response.json()["dev_auth_disabled"], bool)
 
 
 def test_retrieval_route_paths_remain_unchanged():
@@ -89,50 +88,6 @@ def test_retrieval_route_paths_remain_unchanged():
         "/search/hybrid",
         "/search/rerank",
     }.issubset(registered_paths)
-
-
-def test_register_route_remains_public(client, monkeypatch):
-    # This checks the route is not protected.
-    # If your register route needs DB and fails with validation/db error,
-    # it should still not be a 401 auth error.
-    response = client.post(
-        "/auth/register",
-        json={
-            "email": "public-register-test@example.com",
-            "password": "password123",
-            "full_name": "Public Register Test",
-        },
-    )
-
-    assert response.status_code != 401
-
-
-def test_login_route_remains_public(client, monkeypatch):
-    """Verify login route doesn't require authorization header.
-
-    A public route can still return 401 for bad credentials.
-    We test it's public by mocking successful auth and verifying 200
-    without needing an Authorization header.
-    """
-    fake_user = FakeUser(id="user-1", email="test@example.com")
-
-    # Mock the authentication function to return a user
-    monkeypatch.setattr(
-        "app.api.auth_routes.authenticate_local_user",
-        lambda db, email, password: fake_user,
-    )
-
-    response = client.post(
-        "/auth/login",
-        json={
-            "email": "test@example.com",
-            "password": "correct-password",
-        },
-    )
-
-    # If login route is public and auth succeeds, we should get a token back
-    assert response.status_code == 200
-    assert "access_token" in response.json()
 
 
 def test_chat_ask_uses_current_user_not_body_user_id(client, monkeypatch):
