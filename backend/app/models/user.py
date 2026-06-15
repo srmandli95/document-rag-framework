@@ -14,14 +14,9 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     full_name = Column(String, nullable=True)
 
-    # Nullable because OAuth users may not have a local password.
-    hashed_password = Column(String, nullable=True)
+    auth_provider = Column(String, nullable=False, default="google")
 
-    # Prepared values: local, google, microsoft
-    auth_provider = Column(String, nullable=False, default="local")
-
-    # Nullable for local users.
-    provider_user_id = Column(String, nullable=True)
+    provider_user_id = Column(String, nullable=False)
 
     is_active = Column(Boolean, nullable=False, default=True)
 
