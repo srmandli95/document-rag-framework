@@ -158,7 +158,6 @@ def test_google_callback_sets_secure_session_and_does_not_store_google_token(
         id="google-app-user",
         email="oauth@example.com",
         full_name="OAuth User",
-        hashed_password=None,
         auth_provider="google",
         provider_user_id="google-user-123",
         is_active=True,
