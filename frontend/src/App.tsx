@@ -17,6 +17,8 @@ export default function App() {
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [documentsCollapsed, setDocumentsCollapsed] = useState(false);
+  const [historyCollapsed, setHistoryCollapsed] = useState(false);
 
   const loadDocuments = useCallback(async () => {
     try {
@@ -124,11 +126,13 @@ export default function App() {
   };
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${documentsCollapsed ? "documents-collapsed" : ""} ${historyCollapsed ? "history-collapsed" : ""}`}>
       <DocumentPanel
         documents={documents}
         loading={documentsLoading}
         error={documentError}
+        collapsed={documentsCollapsed}
+        onToggleCollapsed={() => setDocumentsCollapsed((current) => !current)}
         onUpload={upload}
         onDelete={remove}
       />
@@ -136,6 +140,8 @@ export default function App() {
         sessions={sessions}
         activeSessionId={activeSessionId}
         error={historyError}
+        collapsed={historyCollapsed}
+        onToggleCollapsed={() => setHistoryCollapsed((current) => !current)}
         onSelect={selectSession}
         onDelete={deleteSession}
         onNewChat={newChat}
