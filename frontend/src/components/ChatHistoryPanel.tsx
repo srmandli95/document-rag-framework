@@ -4,6 +4,8 @@ interface Props {
   sessions: ChatSession[];
   activeSessionId?: string;
   error: string | null;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
   onSelect: (sessionId: string) => Promise<void>;
   onDelete: (session: ChatSession) => Promise<void>;
   onNewChat: () => void;
@@ -13,6 +15,8 @@ export function ChatHistoryPanel({
   sessions,
   activeSessionId,
   error,
+  collapsed,
+  onToggleCollapsed,
   onSelect,
   onDelete,
   onNewChat,
@@ -24,50 +28,79 @@ export function ChatHistoryPanel({
   };
 
   return (
-    <aside className="history-panel">
-      <div className="panel-heading">
-        <div>
-          <p className="eyebrow">Conversations</p>
-          <h2>Chat history</h2>
+    <aside className={`history-panel collapsible-panel ${collapsed ? "collapsed" : ""}`} aria-label="Chat history">
+      {!collapsed && (
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">Conversations</p>
+            <h2>Chat history</h2>
+          </div>
+          <div className="panel-actions">
+            <span className="count">{sessions.length}</span>
+            <button
+              type="button"
+              className="icon-button collapse-button"
+              aria-label="Collapse chat history"
+              aria-expanded="true"
+              onClick={onToggleCollapsed}
+            >
+              ‹
+            </button>
+          </div>
         </div>
-        <span className="count">{sessions.length}</span>
-      </div>
+      )}
 
-      <button type="button" className="primary-button new-chat-button" onClick={onNewChat}>
-        + New chat
-      </button>
+      {collapsed && (
+        <button
+          type="button"
+          className="collapsed-panel-button"
+          aria-label="Expand chat history"
+          onClick={onToggleCollapsed}
+        >
+          <span className="collapsed-panel-title">Chats</span>
+          <span className="count">{sessions.length}</span>
+        </button>
+      )}
 
-      {error && <div className="error-banner" role="alert">{error}</div>}
+      {!collapsed && (
+        <>
+          <button type="button" className="primary-button new-chat-button" onClick={onNewChat}>
+            + New chat
+          </button>
 
-      <div className="history-list">
-        {sessions.length === 0 && (
-          <p className="muted empty-history">Your previous chats will appear here.</p>
-        )}
-        {sessions.map((session) => (
-          <article
-            className={`history-item ${activeSessionId === session.session_id ? "active" : ""}`}
-            key={session.session_id}
-          >
-            <button
-              type="button"
-              className="history-select"
-              aria-label={`Open ${session.title}`}
-              onClick={() => void onSelect(session.session_id)}
-            >
-              <strong>{session.title}</strong>
-              {session.updated_at && <span>{new Date(session.updated_at).toLocaleDateString()}</span>}
-            </button>
-            <button
-              type="button"
-              className="icon-button history-delete"
-              aria-label={`Delete chat ${session.title}`}
-              onClick={() => void confirmDelete(session)}
-            >
-              ×
-            </button>
-          </article>
-        ))}
-      </div>
+          {error && <div className="error-banner" role="alert">{error}</div>}
+
+          <div className="history-list">
+            {sessions.length === 0 && (
+              <p className="muted empty-history">Your previous chats will appear here.</p>
+            )}
+            {sessions.map((session) => (
+              <article
+                className={`history-item ${activeSessionId === session.session_id ? "active" : ""}`}
+                key={session.session_id}
+              >
+                <button
+                  type="button"
+                  className="history-select"
+                  aria-label={`Open ${session.title}`}
+                  onClick={() => void onSelect(session.session_id)}
+                >
+                  <strong>{session.title}</strong>
+                  {session.updated_at && <span>{new Date(session.updated_at).toLocaleDateString()}</span>}
+                </button>
+                <button
+                  type="button"
+                  className="icon-button history-delete"
+                  aria-label={`Delete chat ${session.title}`}
+                  onClick={() => void confirmDelete(session)}
+                >
+                  ×
+                </button>
+              </article>
+            ))}
+          </div>
+        </>
+      )}
     </aside>
   );
 }

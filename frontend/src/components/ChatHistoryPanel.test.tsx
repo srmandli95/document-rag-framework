@@ -12,6 +12,8 @@ const baseProps = {
   sessions: [session],
   activeSessionId: "session-1",
   error: null,
+  collapsed: false,
+  onToggleCollapsed: vi.fn(),
   onSelect: vi.fn().mockResolvedValue(undefined),
   onDelete: vi.fn().mockResolvedValue(undefined),
   onNewChat: vi.fn(),
@@ -38,5 +40,16 @@ describe("ChatHistoryPanel", () => {
     render(<ChatHistoryPanel {...baseProps} onNewChat={onNewChat} />);
     fireEvent.click(screen.getByRole("button", { name: "+ New chat" }));
     expect(onNewChat).toHaveBeenCalledOnce();
+  });
+
+  it("collapses and expands chat history", () => {
+    const onToggleCollapsed = vi.fn();
+    const { rerender } = render(<ChatHistoryPanel {...baseProps} onToggleCollapsed={onToggleCollapsed} />);
+    fireEvent.click(screen.getByLabelText("Collapse chat history"));
+    expect(onToggleCollapsed).toHaveBeenCalledOnce();
+
+    rerender(<ChatHistoryPanel {...baseProps} collapsed onToggleCollapsed={onToggleCollapsed} />);
+    fireEvent.click(screen.getByLabelText("Expand chat history"));
+    expect(onToggleCollapsed).toHaveBeenCalledTimes(2);
   });
 });
