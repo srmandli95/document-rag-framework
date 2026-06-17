@@ -19,9 +19,20 @@ from app.models.user import User
 from app.schemas.auth_schema import AuthUserResponse
 from app.services.user_service import get_or_create_oauth_user
 from app.config.settings import settings
+from app.utils.logger import get_logger
 
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
+logger = get_logger(__name__)
+
+
+def _mask_email(email: str | None) -> str:
+    if not email or "@" not in email:
+        return "missing"
+    local_part, domain = email.split("@", 1)
+    if not local_part:
+        return f"***@{domain}"
+    return f"{local_part[0]}***@{domain}"
 
 
 def _build_access_token(user: User) -> str:
@@ -43,18 +54,27 @@ def _set_session_cookie(response: Response, access_token: str) -> None:
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         path="/",
     )
+    logger.info(
+        "Application session cookie set (cookie=%s, max_age_seconds=%s, secure=%s)",
+        settings.AUTH_COOKIE_NAME,
+        settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        settings.AUTH_COOKIE_SECURE,
+    )
 
 
 def _validate_google_oauth_state(state_value: str) -> None:
     if not verify_oauth_state(state_value):
+        logger.warning("Google OAuth callback rejected: invalid or expired state")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired Google OAuth state",
         )
+    logger.info("Google OAuth state validated")
 
 
 def _require_google_oauth_configured() -> None:
     if not get_google_oauth_configured():
+        logger.warning("Google OAuth request rejected: configuration incomplete")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(
@@ -68,16 +88,23 @@ def _require_google_oauth_configured() -> None:
 def me(
     current_user: User = Depends(get_current_user),
 ) -> AuthUserResponse:
+    logger.info(
+        "Authenticated user profile requested (user_id=%s, provider=%s)",
+        current_user.id,
+        current_user.auth_provider,
+    )
     return AuthUserResponse.model_validate(current_user)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 def logout(response: Response) -> None:
     response.delete_cookie(settings.AUTH_COOKIE_NAME, path="/")
+    logger.info("Application session cookie cleared (cookie=%s)", settings.AUTH_COOKIE_NAME)
 
 
 @router.get("/google/login")
 def google_login(response: Response) -> dict[str, str]:
+    logger.info("Google OAuth login started")
     _require_google_oauth_configured()
 
     try:
@@ -100,6 +127,13 @@ def google_login(response: Response) -> dict[str, str]:
         max_age=600,
         path="/auth/google/callback",
     )
+    logger.info(
+        "Google OAuth authorization URL created and state cookie set "
+        "(state_cookie=%s, state_max_age_seconds=%s, redirect_uri=%s)",
+        settings.OAUTH_STATE_COOKIE_NAME,
+        600,
+        settings.GOOGLE_REDIRECT_URI,
+    )
     return {"authorization_url": authorization_url}
 
 
@@ -110,19 +144,30 @@ async def google_callback(
     state_cookie: str | None = Cookie(default=None, alias=settings.OAUTH_STATE_COOKIE_NAME),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
+    logger.info(
+        "Google OAuth callback received (has_code=%s, has_state=%s, has_state_cookie=%s)",
+        bool(code),
+        bool(state),
+        bool(state_cookie),
+    )
     if not code:
+        logger.warning("Google OAuth callback rejected: missing authorization code")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Missing Google authorization code",
         )
 
     if not state:
+        logger.warning("Google OAuth callback rejected: missing state")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Missing Google OAuth state",
         )
 
     if not state_cookie or state != state_cookie:
+        logger.warning(
+            "Google OAuth callback rejected: state cookie missing or did not match"
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Google OAuth state did not match this browser session",
@@ -139,6 +184,7 @@ async def google_callback(
             )
         userinfo = await fetch_google_userinfo(str(google_access_token))
     except GoogleOAuthError as exc:
+        logger.warning("Google OAuth provider step failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
@@ -146,6 +192,11 @@ async def google_callback(
 
     try:
         identity = validate_google_userinfo(userinfo)
+        logger.info(
+            "Google OAuth identity validated (email=%s, provider_user_id=%s)",
+            _mask_email(str(identity["email"])),
+            identity["provider_user_id"],
+        )
         user = get_or_create_oauth_user(
             db=db,
             provider="google",
@@ -153,7 +204,13 @@ async def google_callback(
             email=str(identity["email"]),
             full_name=identity["full_name"],
         )
+        logger.info(
+            "Local OAuth user resolved (user_id=%s, email=%s)",
+            user.id,
+            _mask_email(user.email),
+        )
     except ValueError as exc:
+        logger.warning("Google OAuth identity rejected: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
@@ -165,5 +222,9 @@ async def google_callback(
     response.delete_cookie(
         settings.OAUTH_STATE_COOKIE_NAME,
         path="/auth/google/callback",
+    )
+    logger.info(
+        "Google OAuth callback completed; redirecting to frontend (frontend_url=%s)",
+        settings.FRONTEND_URL,
     )
     return response
