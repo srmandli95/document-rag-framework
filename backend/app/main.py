@@ -26,7 +26,10 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title=settings.APP_NAME,
     version="0.1.0",
-    description="Production-grade document RAG application.",
+    description=(
+        "A reusable document RAG framework for uploading any document "
+        "and asking citation-backed questions over its contents."
+    ),
     lifespan=lifespan,
 )
 

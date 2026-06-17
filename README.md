@@ -1,6 +1,6 @@
 # Document RAG
 
-A reusable document RAG application for uploading personal knowledge sources and asking citation-backed questions.
+A reusable document RAG framework for uploading any document and asking citation-backed questions over its contents.
 
 ## Architecture
 
