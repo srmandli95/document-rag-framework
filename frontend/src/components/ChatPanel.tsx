@@ -37,7 +37,8 @@ interface Props {
 
 export function ChatPanel(props: Props) {
   const [question, setQuestion] = useState("");
-  const disabled = props.loading || props.readyDocumentCount === 0;
+  const disabled = props.readyDocumentCount === 0;
+  const hasPendingMessages = props.messages.some((message) => message.is_pending);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -85,9 +86,14 @@ export function ChatPanel(props: Props) {
                 )}
               </div>
             )}
+            {message.is_pending && (
+              <div className="message assistant-message loading-message">Generating answer…</div>
+            )}
           </div>
         ))}
-        {props.loading && <div className="message assistant-message loading-message">Generating answer…</div>}
+        {props.loading && !hasPendingMessages && (
+          <div className="message assistant-message loading-message">Generating answer…</div>
+        )}
       </section>
 
       {props.error && <div className="error-banner chat-error" role="alert">{props.error}</div>}

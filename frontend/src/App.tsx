@@ -6,19 +6,21 @@ import { DocumentPanel } from "./components/DocumentPanel";
 import type { ChatMessage, ChatSession, DocumentRecord } from "./types";
 
 const activeStatuses = new Set(["uploading", "validating", "extracting", "chunking", "embedding"]);
+const newChatKey = "__new_chat__";
 
 export default function App() {
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [documentError, setDocumentError] = useState<string | null>(null);
   const [documentsLoading, setDocumentsLoading] = useState(true);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messagesByChat, setMessagesByChat] = useState<Record<string, ChatMessage[]>>({});
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>();
-  const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [documentsCollapsed, setDocumentsCollapsed] = useState(false);
   const [historyCollapsed, setHistoryCollapsed] = useState(false);
+  const activeChatKey = activeSessionId ?? newChatKey;
+  const messages = messagesByChat[activeChatKey] ?? [];
 
   const loadDocuments = useCallback(async () => {
     try {
@@ -80,35 +82,77 @@ export default function App() {
 
   const selectSession = async (sessionId: string) => {
     setChatError(null);
+    setActiveSessionId(sessionId);
     try {
-      setMessages(await api.getSession(sessionId));
-      setActiveSessionId(sessionId);
+      const sessionMessages = await api.getSession(sessionId);
+      setMessagesByChat((current) => {
+        const pendingMessages = (current[sessionId] ?? []).filter((message) => message.is_pending);
+
+        return {
+          ...current,
+          [sessionId]: [...sessionMessages, ...pendingMessages],
+        };
+      });
     } catch (error) {
       setChatError(error instanceof Error ? error.message : "Could not load chat");
     }
   };
 
   const send = async (question: string) => {
-    if (chatLoading) return;
-    setChatLoading(true);
+    const pendingMessageId = `pending-${Date.now()}-${crypto.randomUUID()}`;
+    const sessionId = activeSessionId;
+    const chatKey = sessionId ?? newChatKey;
+
     setChatError(null);
-    setMessages((current) => [...current, { question, citations: [] }]);
+    setMessagesByChat((current) => ({
+      ...current,
+      [chatKey]: [
+        ...(current[chatKey] ?? []),
+        {
+          message_id: pendingMessageId,
+          question,
+          citations: [],
+          is_pending: true,
+        },
+      ],
+    }));
     try {
-      const response = await api.ask(question, activeSessionId);
-      setMessages((current) => [...current.slice(0, -1), response]);
-      setActiveSessionId(response.session_id);
+      const response = await api.ask(question, sessionId);
+      setMessagesByChat((current) => {
+        const updatedMessages = (current[chatKey] ?? []).map((message) => (
+          message.message_id === pendingMessageId ? response : message
+        ));
+
+        if (!sessionId) {
+          const { [newChatKey]: _newChatMessages, ...rest } = current;
+          return {
+            ...rest,
+            [response.session_id]: updatedMessages,
+          };
+        }
+
+        return {
+          ...current,
+          [chatKey]: updatedMessages,
+        };
+      });
+      setActiveSessionId((current) => (current === sessionId ? response.session_id : current));
       await loadSessions();
     } catch (error) {
-      setMessages((current) => current.slice(0, -1));
+      setMessagesByChat((current) => ({
+        ...current,
+        [chatKey]: (current[chatKey] ?? []).filter((message) => message.message_id !== pendingMessageId),
+      }));
       setChatError(error instanceof Error ? error.message : "Could not generate an answer");
-    } finally {
-      setChatLoading(false);
     }
   };
 
   const newChat = () => {
     setActiveSessionId(undefined);
-    setMessages([]);
+    setMessagesByChat((current) => ({
+      ...current,
+      [newChatKey]: [],
+    }));
     setChatError(null);
   };
 
@@ -117,6 +161,10 @@ export default function App() {
     try {
       await api.deleteSession(session.session_id);
       setSessions((current) => current.filter((item) => item.session_id !== session.session_id));
+      setMessagesByChat((current) => {
+        const { [session.session_id]: _deletedMessages, ...rest } = current;
+        return rest;
+      });
       if (activeSessionId === session.session_id) {
         newChat();
       }
@@ -149,7 +197,7 @@ export default function App() {
       <ChatPanel
         messages={messages}
         readyDocumentCount={readyDocumentCount}
-        loading={chatLoading}
+        loading={messages.some((message) => message.is_pending)}
         error={chatError}
         onSend={send}
       />

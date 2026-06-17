@@ -27,6 +27,19 @@ describe("ChatPanel", () => {
     expect(screen.getByText("Add a ready document to begin")).toBeInTheDocument();
   });
 
+  it("keeps chat enabled while another answer is generating", async () => {
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    render(<ChatPanel {...baseProps} loading={true} onSend={onSend} />);
+    const input = screen.getByLabelText("Ask a question");
+
+    expect(input).not.toBeDisabled();
+
+    await userEvent.type(input, "Can I ask another?");
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(onSend).toHaveBeenCalledWith("Can I ask another?");
+  });
+
   it("renders API errors", () => {
     render(<ChatPanel {...baseProps} error="Answer failed" />);
     expect(screen.getByRole("alert")).toHaveTextContent("Answer failed");
@@ -57,5 +70,20 @@ describe("ChatPanel", () => {
     expect(screen.getByText("The late fee is 2%.")).toBeInTheDocument();
     expect(screen.queryByText(/Chunk ID/)).not.toBeInTheDocument();
     expect(screen.getAllByText("guide.docx")).toHaveLength(1);
+  });
+
+  it("shows loading state on each pending message", () => {
+    render(
+      <ChatPanel
+        {...baseProps}
+        loading={true}
+        messages={[
+          { message_id: "pending-1", question: "First?", citations: [], is_pending: true },
+          { message_id: "pending-2", question: "Second?", citations: [], is_pending: true },
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByText("Generating answer…")).toHaveLength(2);
   });
 });
