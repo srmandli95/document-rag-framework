@@ -2,10 +2,10 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.auth.dependencies import get_current_user
-from app.db.database import get_async_db, get_db
+from app.db.database import SessionLocal, get_async_db
 from app.graph.rag_graph import run_rag_workflow
 from app.models.user import User
 from app.retrieval.retrieval_settings import (
@@ -26,6 +26,14 @@ from app.services import chat_service
 
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
+
+
+def _run_rag_workflow_with_session(**kwargs: Any) -> dict[str, Any]:
+    db = SessionLocal()
+    try:
+        return run_rag_workflow(db=db, **kwargs)
+    finally:
+        db.close()
 
 
 def _to_chat_session_response(session: Any) -> ChatSessionResponse:
@@ -62,7 +70,6 @@ def _to_chat_message_response(message: Any) -> ChatMessageResponse:
 async def ask_question(
     request: AskRequest,
     async_db: AsyncSession = Depends(get_async_db),
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AskResponse:
     """
@@ -118,8 +125,8 @@ async def ask_question(
         ) from exc
 
     try:
-        result = run_rag_workflow(
-            db=db,
+        result = await run_in_threadpool(
+            _run_rag_workflow_with_session,
             user_id=str(current_user.id),
             question=question,
             top_k=retrieval_settings.top_k,

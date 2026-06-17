@@ -6,25 +6,27 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; }
+html, body { height: 100%; }
+body { margin: 0; min-width: 320px; overflow: hidden; }
 button, textarea, select { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .55; }
-#root { min-height: 100vh; }
+#root { height: 100vh; height: 100dvh; min-height: 100vh; min-height: 100dvh; }
 
 .app-shell {
   --documents-column: minmax(280px, 340px);
   --history-column: minmax(220px, 270px);
   display: grid;
+  flex: 1 1 auto;
   grid-template-columns: var(--documents-column) var(--history-column) 1fr;
-  height: calc(100vh - 56px);
+  min-height: 0;
   overflow: hidden;
 }
 .app-shell.documents-collapsed { --documents-column: 64px; }
 .app-shell.history-collapsed { --history-column: 64px; }
 
-.authenticated-shell { height: 100vh; min-height: 0; overflow: hidden; }
-.account-bar { align-items: center; background: #172033; color: white; display: flex; gap: 12px; height: 56px; justify-content: space-between; padding: 8px 18px; }
+.authenticated-shell { display: flex; flex-direction: column; height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; }
+.account-bar { align-items: center; background: #172033; color: white; display: flex; flex: 0 0 56px; gap: 12px; height: 56px; justify-content: space-between; padding: 8px 18px; }
 .account-bar span { color: #cbd5e1; font-size: 13px; }
 .account-bar strong { color: white; }
 .auth-page { align-items: center; background: #eef1f5; color: #718096; display: flex; justify-content: center; min-height: 100vh; padding: 24px; }
@@ -152,19 +154,19 @@ h1, h2 { margin-bottom: 0; letter-spacing: -.035em; }
 .citations { border-top: 1px solid #d8e0e9; display: flex; flex-direction: column; font-size: 11px; gap: 4px; margin-top: 12px; padding-top: 9px; }
 .citations span { color: #526277; }
 .chat-error { margin: 0 28px 10px; }
-.chat-form { border-top: 1px solid #e5e9ef; gap: 10px; padding: 16px 28px; }
+.chat-form { border-top: 1px solid #e5e9ef; flex: 0 0 auto; gap: 10px; padding: 16px 28px; }
 .chat-form textarea { border: 1px solid #ccd4df; border-radius: 12px; flex: 1; height: 48px; max-height: 130px; padding: 12px; resize: vertical; }
 .chat-form textarea:focus { border-color: #4f6fdc; outline: 3px solid #dbeafe; }
 
 @media (max-width: 800px) {
-  .app-shell { display: flex; flex-direction: column; height: auto; min-height: 100vh; overflow: visible; }
-  .document-panel { border-bottom: 1px solid #dce2ea; border-right: 0; max-height: 50vh; }
-  .history-panel { border-bottom: 1px solid #dce2ea; border-right: 0; max-height: 40vh; }
+  .app-shell { display: flex; flex-direction: column; height: auto; overflow: hidden; }
+  .document-panel { border-bottom: 1px solid #dce2ea; border-right: 0; flex: 0 0 auto; max-height: 32vh; }
+  .history-panel { border-bottom: 1px solid #dce2ea; border-right: 0; flex: 0 0 auto; max-height: 28vh; }
   .collapsible-panel.collapsed { align-items: stretch; min-height: 56px; padding: 8px 16px; }
   .collapsed-panel-button { flex-direction: row; justify-content: space-between; padding: 8px 12px; }
   .collapsed-panel-title { writing-mode: horizontal-tb; transform: none; }
-  .chat-panel { min-height: 70vh; }
+  .chat-panel { flex: 1 1 auto; min-height: 0; }
   .chat-header { align-items: flex-start; flex-direction: column; gap: 12px; }
-  .messages { min-height: 45vh; padding: 24px 16px; }
+  .messages { min-height: 0; padding: 24px 16px; }
   .chat-form { padding: 14px 16px; }
 }

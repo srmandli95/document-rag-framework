@@ -31,6 +31,7 @@ export interface ChatMessage {
   question: string;
   answer?: string | null;
   citations: Citation[];
+  is_pending?: boolean;
 }
 
 export interface ChatSession {
