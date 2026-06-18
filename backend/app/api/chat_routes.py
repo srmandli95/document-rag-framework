@@ -15,7 +15,6 @@ from app.retrieval.retrieval_settings import (
 from app.schemas.chat_schema import (
     AskRequest,
     AskResponse,
-    ChatMessageEvidenceResponse,
     ChatMessageResponse,
     ChatSessionDeleteResponse,
     ChatSessionDetailResponse,
@@ -226,40 +225,6 @@ async def delete_chat_session(
         session_id=chat_session.id,
         user_id=chat_session.user_id,
         message="Chat session deleted successfully",
-    )
-
-
-@router.get(
-    "/messages/{message_id}/evidence",
-    response_model=ChatMessageEvidenceResponse,
-)
-async def get_chat_message_evidence(
-    message_id: str,
-    async_db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
-) -> ChatMessageEvidenceResponse:
-    message = await chat_service.get_chat_message_by_id(
-        db=async_db,
-        message_id=message_id,
-        user_id=str(current_user.id),
-    )
-
-    if message is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Chat message not found",
-        )
-
-    return ChatMessageEvidenceResponse(
-        message_id=message.id,
-        session_id=message.session_id,
-        user_id=message.user_id,
-        question=message.question,
-        answer=message.answer,
-        citations=message.citations or [],
-        retrieved_chunks=message.retrieved_chunks or [],
-        evidence_chunk_count=message.evidence_chunk_count or 0,
-        created_at=message.created_at,
     )
 
 
