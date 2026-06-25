@@ -8,6 +8,7 @@ from app.config.settings import settings
 
 
 class Base(DeclarativeBase):
+    """Declarative base class for SQLAlchemy ORM models."""
     pass
 
 
@@ -39,6 +40,7 @@ AsyncSessionLocal = async_sessionmaker(
 
 
 def get_db() -> Generator[Session, None, None]:
+    """Yield a synchronous database session for FastAPI dependencies."""
     db = SessionLocal()
     try:
         yield db
@@ -47,5 +49,6 @@ def get_db() -> Generator[Session, None, None]:
 
 
 async def get_async_db() -> AsyncGenerator[AsyncSession, None]:
+    """Yield an asynchronous database session for FastAPI dependencies."""
     async with AsyncSessionLocal() as session:
         yield session
