@@ -10,6 +10,7 @@ from app.db.database import Base
 
 
 class DocumentProcessingJob(Base):
+    """Database model tracking asynchronous document processing."""
     __tablename__ = "document_processing_jobs"
 
     id: Mapped[str] = mapped_column(
