@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.api.document_routes as document_routes
+import app.ingestion.embedding_indexing_service as service_module
 from app.embeddings.local_embedder import LocalEmbeddingService
 from app.ingestion.embedding_indexing_service import embed_document_chunks
 from app.main import app
@@ -286,8 +287,6 @@ def test_embed_document_chunks_updates_statuses(monkeypatch):
         fake_document.status = status
         return fake_document
 
-    import app.ingestion.embedding_indexing_service as service_module
-
     monkeypatch.setattr(
         service_module,
         "get_created_chunks_by_document",
@@ -365,8 +364,6 @@ def test_failed_embedding_marks_document_status_as_failed(monkeypatch):
         updated_document_statuses.append(status)
         fake_document.status = status
         return fake_document
-
-    import app.ingestion.embedding_indexing_service as service_module
 
     monkeypatch.setattr(
         service_module,
