@@ -2,10 +2,7 @@ from abc import ABC, abstractmethod
 from typing import BinaryIO
 
 class StorageService(ABC):
-    """
-    Abstact storage interface.
-
-    """
+    """Abstract interface for document storage backends."""
 
     @abstractmethod
     def save_file(
@@ -15,6 +12,7 @@ class StorageService(ABC):
         document_id: str,
         original_file_name: str,
     ) -> dict:
+        """Persist a file-like object and return storage metadata."""
         pass
 
     @abstractmethod
@@ -22,6 +20,7 @@ class StorageService(ABC):
         self,
         storage_path: str
     ) -> None:
+        """Remove a stored file identified by its storage path."""
         pass
 
     @abstractmethod
@@ -29,6 +28,7 @@ class StorageService(ABC):
         self,
         storage_path: str
     ) -> str:
+        """Return a readable path or locator for a stored file."""
         pass
 
         
