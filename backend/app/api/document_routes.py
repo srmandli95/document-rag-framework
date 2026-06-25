@@ -1,4 +1,5 @@
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import (
     APIRouter,
@@ -212,8 +213,6 @@ async def upload_document(
     file_size_bytes = await _get_file_size_bytes(file)
 
     storage_service = LocalStorageService()
-
-    from uuid import uuid4
 
     storage_document_id = str(uuid4())
 
