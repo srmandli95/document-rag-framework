@@ -8,6 +8,7 @@ from app.db.database import Base
 
 
 class ChatSession(Base):
+    """Database model for a user chat session."""
     __tablename__ = "chat_sessions"
 
     id: Mapped[str] = mapped_column(
