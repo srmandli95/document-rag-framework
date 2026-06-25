@@ -10,6 +10,7 @@ from app.db.database import Base
 
 
 class ChatMessage(Base):
+    """Database model for a persisted chat message."""
     __tablename__ = "chat_messages"
 
     id: Mapped[str] = mapped_column(
