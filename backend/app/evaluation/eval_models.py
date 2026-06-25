@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 
 class EvalCase(BaseModel):
+    """Input case used to evaluate RAG answer quality."""
     id: str
     category: str
     question: str
@@ -13,6 +14,7 @@ class EvalCase(BaseModel):
 
 
 class EvalCaseResult(BaseModel):
+    """Evaluation result for a single case."""
     id: str
     question: str
     status: str
@@ -28,6 +30,7 @@ class EvalCaseResult(BaseModel):
 
 
 class EvalRunResult(BaseModel):
+    """Aggregate result for a complete evaluation run."""
     run_id: str | None = None
     user_id: str | None = None
     eval_file: str | None = None
@@ -40,6 +43,7 @@ class EvalRunResult(BaseModel):
 
 
 class EvalRegressionResult(BaseModel):
+    """Comparison result between a baseline and current evaluation run."""
     baseline_total: int
     current_total: int
     baseline_passed: int
