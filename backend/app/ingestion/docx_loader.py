@@ -4,6 +4,7 @@ from docx import Document as DocxDocument
 
 
 def extract_docx_text(file_path: str) -> str:
+    """Extract plain text from a DOCX file."""
     path = Path(file_path)
 
     if not path.exists():
