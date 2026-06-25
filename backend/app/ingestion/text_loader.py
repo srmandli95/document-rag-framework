@@ -2,6 +2,7 @@ from pathlib import Path
 
 
 def extract_text_file(file_path: str) -> str:
+    """Read text from a plain-text file."""
     path = Path(file_path)
 
     if not path.exists():
