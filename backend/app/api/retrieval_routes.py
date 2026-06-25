@@ -31,6 +31,7 @@ router = APIRouter(prefix="/search", tags=["Retrieval"])
 
 
 def _validate_query(query: str | None) -> str:
+    """Return a trimmed search query or raise when it is empty."""
     if not query or not query.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -41,6 +42,7 @@ def _validate_query(query: str | None) -> str:
 
 
 def _safe_positive_top_k(value: int, default: int, maximum: int) -> int:
+    """Validate and cap a requested result count."""
     if value <= 0:
         return default
 
@@ -239,6 +241,7 @@ def diagnose_retrieval_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> RetrievalDiagnosticsResponse:
+    """Run retrieval diagnostics for an authenticated user query."""
     user_id = str(current_user.id)
     query = _validate_query(request.query)
     try:
