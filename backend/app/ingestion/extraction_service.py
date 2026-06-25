@@ -13,6 +13,7 @@ def extract_and_store_document_text(
     db: Session,
     document: Document,
 ) -> dict:
+    """Extract text from a document and store it on the document record."""
     try:
         update_document_status(
             db=db,
