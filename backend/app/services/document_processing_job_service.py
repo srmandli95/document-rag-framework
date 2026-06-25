@@ -6,6 +6,7 @@ from app.models.document_processing_job import DocumentProcessingJob
 
 
 def _save_job(db: Session, job: DocumentProcessingJob) -> DocumentProcessingJob:
+    """Persist job changes and refresh the model."""
     db.add(job)
     db.commit()
     db.refresh(job)
@@ -18,6 +19,7 @@ def create_processing_job(
     user_id: str,
     force: bool = False,
 ) -> DocumentProcessingJob:
+    """Create a queued processing job for a document."""
     job = DocumentProcessingJob(
         document_id=document_id,
         user_id=user_id,
@@ -33,6 +35,7 @@ def mark_job_running(
     job: DocumentProcessingJob,
     current_step: str | None = None,
 ) -> DocumentProcessingJob:
+    """Mark a processing job as running."""
     job.status = "running"
     job.current_step = current_step
     job.started_at = job.started_at or datetime.utcnow()
@@ -45,6 +48,7 @@ def update_job_step(
     step: dict,
     current_step: str | None = None,
 ) -> DocumentProcessingJob:
+    """Update the current step and step metadata for a job."""
     job.steps = [*(job.steps or []), step]
     job.current_step = current_step
     return _save_job(db, job)
@@ -55,6 +59,7 @@ def mark_job_completed(
     job: DocumentProcessingJob,
     steps: list[dict],
 ) -> DocumentProcessingJob:
+    """Mark a processing job as completed."""
     job.status = "completed"
     job.steps = list(steps)
     job.current_step = None
@@ -69,6 +74,7 @@ def mark_job_failed(
     steps: list[dict],
     error_message: str,
 ) -> DocumentProcessingJob:
+    """Mark a processing job as failed with an error message."""
     job.status = "failed"
     job.steps = list(steps)
     job.current_step = None
@@ -83,6 +89,7 @@ def mark_job_skipped(
     steps: list[dict],
     message: str,
 ) -> DocumentProcessingJob:
+    """Mark a processing job as skipped."""
     job.status = "skipped"
     job.steps = list(steps)
     job.current_step = None
@@ -96,6 +103,7 @@ def get_processing_jobs_by_document(
     document_id: str,
     user_id: str,
 ) -> list[DocumentProcessingJob]:
+    """Return processing jobs for an owned document."""
     return (
         db.query(DocumentProcessingJob)
         .filter(
@@ -112,6 +120,7 @@ def get_processing_job_by_id(
     job_id: str,
     user_id: str,
 ) -> DocumentProcessingJob | None:
+    """Return one processing job owned by a user."""
     return (
         db.query(DocumentProcessingJob)
         .filter(
@@ -127,6 +136,7 @@ def get_latest_processing_job_for_document(
     document_id: str,
     user_id: str,
 ) -> DocumentProcessingJob | None:
+    """Return the newest processing job for an owned document."""
     return (
         db.query(DocumentProcessingJob)
         .filter(
