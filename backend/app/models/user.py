@@ -7,6 +7,7 @@ from app.db.database import Base
 
 
 class User(Base):
+    """Database model for an authenticated application user."""
     __tablename__ = "users"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
