@@ -27,6 +27,7 @@ logger = get_logger(__name__)
 
 
 def _mask_email(email: str | None) -> str:
+    """Mask an email address before writing it to logs."""
     if not email or "@" not in email:
         return "missing"
     local_part, domain = email.split("@", 1)
@@ -36,6 +37,7 @@ def _mask_email(email: str | None) -> str:
 
 
 def _build_access_token(user: User) -> str:
+    """Create a signed access token for an authenticated user."""
     token_data = {
         "sub": user.id,
         "email": user.email,
@@ -45,6 +47,7 @@ def _build_access_token(user: User) -> str:
 
 
 def _set_session_cookie(response: Response, access_token: str) -> None:
+    """Attach the session token to the response as an HTTP-only cookie."""
     response.set_cookie(
         key=settings.AUTH_COOKIE_NAME,
         value=access_token,
@@ -63,6 +66,7 @@ def _set_session_cookie(response: Response, access_token: str) -> None:
 
 
 def _validate_google_oauth_state(state_value: str) -> None:
+    """Validate and consume the Google OAuth state cookie."""
     if not verify_oauth_state(state_value):
         logger.warning("Google OAuth callback rejected: invalid or expired state")
         raise HTTPException(
@@ -73,6 +77,7 @@ def _validate_google_oauth_state(state_value: str) -> None:
 
 
 def _require_google_oauth_configured() -> None:
+    """Ensure Google OAuth settings are present before starting the flow."""
     if not get_google_oauth_configured():
         logger.warning("Google OAuth request rejected: configuration incomplete")
         raise HTTPException(
@@ -88,6 +93,7 @@ def _require_google_oauth_configured() -> None:
 def me(
     current_user: User = Depends(get_current_user),
 ) -> AuthUserResponse:
+    """Return the authenticated user represented by the current session."""
     logger.info(
         "Authenticated user profile requested (user_id=%s, provider=%s)",
         current_user.id,
@@ -98,12 +104,14 @@ def me(
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 def logout(response: Response) -> None:
+    """Clear the browser session cookie for the current user."""
     response.delete_cookie(settings.AUTH_COOKIE_NAME, path="/")
     logger.info("Application session cookie cleared (cookie=%s)", settings.AUTH_COOKIE_NAME)
 
 
 @router.get("/google/login")
 def google_login(response: Response) -> dict[str, str]:
+    """Start the Google OAuth login flow and redirect to Google."""
     logger.info("Google OAuth login started")
     _require_google_oauth_configured()
 
@@ -144,6 +152,7 @@ async def google_callback(
     state_cookie: str | None = Cookie(default=None, alias=settings.OAUTH_STATE_COOKIE_NAME),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
+    """Complete Google OAuth login and establish an application session."""
     logger.info(
         "Google OAuth callback received (has_code=%s, has_state=%s, has_state_cookie=%s)",
         bool(code),
