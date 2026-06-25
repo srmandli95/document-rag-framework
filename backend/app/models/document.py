@@ -8,6 +8,7 @@ from app.db.database import Base
 
 
 class Document(Base):
+    """Database model for an uploaded user document."""
     __tablename__ = "documents"
 
     id: Mapped[str] = mapped_column(
