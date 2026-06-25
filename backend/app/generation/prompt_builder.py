@@ -11,6 +11,7 @@ PROMPTS_PATH = Path(__file__).resolve().parents[1] / "config" / "prompts.yaml"
 
 @lru_cache
 def load_prompts() -> dict[str, str]:
+    """Load prompt templates from the configured YAML file."""
     with PROMPTS_PATH.open("r", encoding="utf-8") as file:
         prompts = yaml.safe_load(file) or {}
 
@@ -18,6 +19,7 @@ def load_prompts() -> dict[str, str]:
 
 
 def build_query_rewrite_prompt(question: str) -> str:
+    """Build a prompt for rewriting a user query."""
     prompts = load_prompts()
     template = prompts["query_rewrite_prompt"]
 
@@ -25,6 +27,7 @@ def build_query_rewrite_prompt(question: str) -> str:
 
 
 def build_evidence_context(evidence_chunks: list[dict[str, Any]]) -> str:
+    """Format retrieved chunks as evidence context."""
     if not evidence_chunks:
         return "No evidence chunks were retrieved."
 
@@ -67,6 +70,7 @@ def build_answer_prompt(
     question: str,
     evidence_chunks: list[dict[str, Any]],
 ) -> str:
+    """Build the grounded answer-generation prompt."""
     prompts = load_prompts()
     template = prompts["answer_generation_prompt"]
 
@@ -79,6 +83,7 @@ def build_answer_prompt(
 
 
 def get_refusal_message() -> str:
+    """Return the configured refusal message."""
     prompts = load_prompts()
 
     return prompts.get(
