@@ -4,6 +4,7 @@ from app.evaluation.eval_models import EvalRegressionResult, EvalRunResult
 
 
 def _run_to_dict(run: dict[str, Any] | EvalRunResult) -> dict[str, Any]:
+    """Serialize an evaluation run when needed for comparison."""
     if isinstance(run, EvalRunResult):
         return run.model_dump()
     if isinstance(run, dict):
@@ -12,6 +13,7 @@ def _run_to_dict(run: dict[str, Any] | EvalRunResult) -> dict[str, Any]:
 
 
 def _get_case_map(run: dict[str, Any] | EvalRunResult) -> dict[str, bool]:
+    """Index evaluation case results by case id."""
     run_data = _run_to_dict(run)
     results = run_data.get("results")
     if not isinstance(results, list):
@@ -39,6 +41,7 @@ def _get_case_map(run: dict[str, Any] | EvalRunResult) -> dict[str, bool]:
 
 
 def _number(run: dict[str, Any], name: str, default: int | float) -> int | float:
+    """Convert a metric value to a float for regression comparison."""
     value = run.get(name, default)
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         raise ValueError(f"Evaluation run field '{name}' must be numeric.")
@@ -49,6 +52,7 @@ def compare_eval_runs(
     baseline: dict[str, Any] | EvalRunResult,
     current: dict[str, Any] | EvalRunResult,
 ) -> EvalRegressionResult:
+    """Compare current evaluation metrics against a baseline run."""
     baseline_data = _run_to_dict(baseline)
     current_data = _run_to_dict(current)
     baseline_cases = _get_case_map(baseline_data)
