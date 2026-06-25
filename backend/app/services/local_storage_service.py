@@ -1,12 +1,16 @@
-import re 
+import re
 from pathlib import Path
 from typing import BinaryIO
 
 from app.config.settings import settings
 from app.services.storage_service import StorageService
 
+
 class LocalStorageService(StorageService):
+    """Store uploaded source documents on the local filesystem."""
+
     def __init__(self, base_dir: str | None = None) -> None:
+        """Initialize storage under the configured raw documents directory."""
         self.base_dir = Path(base_dir or settings.RAW_DOCUMENTS_DIR)
 
     def save_file(
@@ -16,6 +20,7 @@ class LocalStorageService(StorageService):
         document_id: str,
         original_file_name: str,
     ) -> dict:
+        """Persist an uploaded file and return storage metadata for the document."""
         safe_file_name = self._sanitize_file_name(original_file_name)
 
         document_dir = self.base_dir / user_id / document_id
@@ -38,11 +43,13 @@ class LocalStorageService(StorageService):
         }
 
     def delete_file(self, storage_path: str) -> None:
+        """Delete a stored file if it exists."""
         path = Path(storage_path)
         if path.exists() and path.is_file():
             path.unlink()
 
     def get_file(self, storage_path: str) -> str:
+        """Return the filesystem path for a stored file, or raise if it is missing."""
         path = Path(storage_path)
         if path.exists() and path.is_file():
             return str(path)
@@ -55,11 +62,9 @@ class LocalStorageService(StorageService):
         implementation lives in `get_file`.
         """
         return self.get_file(storage_path)
-        
-    def _sanitize_file_name(self, file_name:str) -> str:
-        
-        clean_name = Path(file_name).name
-        clean_name = re.sub(r'[^\w\.-]', '_', clean_name)
-        return clean_name
 
-    
+    def _sanitize_file_name(self, file_name: str) -> str:
+        """Normalize a user-supplied filename for safe local storage."""
+        clean_name = Path(file_name).name
+        clean_name = re.sub(r"[^\w\.-]", "_", clean_name)
+        return clean_name
