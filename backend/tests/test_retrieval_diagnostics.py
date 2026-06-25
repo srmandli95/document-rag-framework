@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from app.auth.dependencies import get_current_user
@@ -198,8 +199,6 @@ def test_diagnose_retrieval_rejects_top_k_above_limits(monkeypatch):
         "app.retrieval.retrieval_diagnostics.rerank_hybrid_results",
         fake_search,
     )
-
-    import pytest
 
     with pytest.raises(ValueError, match="vector_top_k must be between 1 and 50"):
         diagnose_retrieval(FakeDB(), "user-1", "query", 99, 99, 99, 99)
