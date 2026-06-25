@@ -8,6 +8,8 @@ from app.generation.citation_guard import (
 )
 from app.generation.llm_client import get_llm_client
 from app.generation.prompt_builder import build_answer_prompt
+from app.graph.rag_graph import run_rag_workflow
+
 
 def _get_model_name() -> str:
     provider = getattr(settings, "LLM_PROVIDER", "openai").lower().strip()
@@ -51,10 +53,6 @@ def generate_answer_from_evidence(
     bm25_weight: float = 0.4,
     min_reranker_score: float | None = None,
 ) -> dict[str, Any]:
-    
-
-    from app.graph.rag_graph import run_rag_workflow
-
     return run_rag_workflow(
         db=db,
         user_id=user_id,
