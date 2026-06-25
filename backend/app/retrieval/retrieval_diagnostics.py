@@ -33,6 +33,7 @@ _SLIM_RESULT_FIELDS = (
 
 
 def _extract_chunk_id(result: dict) -> str | None:
+    """Extract a normalized chunk id from a retrieval result."""
     chunk_id = result.get("chunk_id")
     if chunk_id is None:
         return None
@@ -42,6 +43,7 @@ def _extract_chunk_id(result: dict) -> str | None:
 
 
 def _rank_map(results: list[dict]) -> dict[str, int]:
+    """Map chunk ids to their first one-based rank."""
     ranks: dict[str, int] = {}
     for rank, result in enumerate(results, start=1):
         chunk_id = _extract_chunk_id(result)
@@ -51,6 +53,7 @@ def _rank_map(results: list[dict]) -> dict[str, int]:
 
 
 def _calculate_overlap(results_a: list[dict], results_b: list[dict]) -> int:
+    """Count unique chunks shared by two result sets."""
     chunk_ids_a = {
         chunk_id
         for result in results_a
@@ -68,6 +71,7 @@ def _calculate_rank_changes(
     before_results: list[dict],
     after_results: list[dict],
 ) -> list[dict]:
+    """Calculate rank changes after reranking."""
     before_ranks = _rank_map(before_results)
     before_by_chunk = {
         chunk_id: result
@@ -105,6 +109,7 @@ def _calculate_rank_changes(
 
 
 def _slim_result(result: dict) -> dict:
+    """Remove sensitive or verbose fields from a retrieval result."""
     slim = {field: result.get(field) for field in _SLIM_RESULT_FIELDS}
     chunk_text = str(result.get("chunk_text") or "")
     slim["chunk_text_preview"] = chunk_text[:300]
@@ -122,6 +127,7 @@ def diagnose_retrieval(
     vector_weight: float = 0.6,
     bm25_weight: float = 0.4,
 ) -> dict[str, Any]:
+    """Run each retrieval stage and return diagnostic comparisons."""
     if not user_id or not user_id.strip():
         raise ValueError("user_id is required")
     if not query or not query.strip():
