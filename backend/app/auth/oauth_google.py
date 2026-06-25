@@ -23,6 +23,7 @@ class GoogleOAuthError(Exception):
 
 
 def _mask_client_id(client_id: str | None) -> str:
+    """Mask the configured Google client id for safe diagnostics."""
     if not client_id:
         return "missing"
     if len(client_id) <= 12:
@@ -31,6 +32,7 @@ def _mask_client_id(client_id: str | None) -> str:
 
 
 def create_oauth_state() -> str:
+    """Create a signed OAuth state token for CSRF protection."""
     expires_at = datetime.now(timezone.utc) + timedelta(
         minutes=GOOGLE_OAUTH_STATE_EXPIRE_MINUTES
     )
@@ -47,6 +49,7 @@ def create_oauth_state() -> str:
 
 
 def verify_oauth_state(state: str) -> bool:
+    """Verify that a returned OAuth state matches the stored cookie."""
     try:
         payload = jwt.decode(
             state,
@@ -67,6 +70,7 @@ def verify_oauth_state(state: str) -> bool:
 
 
 def get_google_oauth_configured() -> bool:
+    """Report whether the required Google OAuth settings are configured."""
     return bool(
         settings.GOOGLE_CLIENT_ID
         and settings.GOOGLE_CLIENT_SECRET
@@ -75,6 +79,7 @@ def get_google_oauth_configured() -> bool:
 
 
 def _require_google_oauth_configured() -> None:
+    """Raise when Google OAuth credentials are incomplete."""
     if not get_google_oauth_configured():
         logger.warning(
             "Google OAuth is not fully configured "
@@ -90,6 +95,7 @@ def _require_google_oauth_configured() -> None:
 
 
 def build_google_authorization_url(state: str) -> str:
+    """Build the Google authorization URL and corresponding state token."""
     _require_google_oauth_configured()
     logger.info(
         "Building Google OAuth authorization URL "
@@ -114,6 +120,7 @@ def build_google_authorization_url(state: str) -> str:
 
 
 async def exchange_google_code_for_token(code: str) -> dict[str, Any]:
+    """Exchange an OAuth authorization code for Google token data."""
     _require_google_oauth_configured()
     logger.info(
         "Exchanging Google authorization code for token "
@@ -151,6 +158,7 @@ async def exchange_google_code_for_token(code: str) -> dict[str, Any]:
 
 
 async def fetch_google_userinfo(access_token: str) -> dict[str, Any]:
+    """Fetch the Google profile associated with an access token."""
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             logger.info("Fetching Google userinfo")
@@ -177,6 +185,7 @@ async def fetch_google_userinfo(access_token: str) -> dict[str, Any]:
 
 
 def validate_google_userinfo(userinfo: dict[str, Any]) -> dict[str, str | None]:
+    """Validate and normalize Google user profile data."""
     provider_user_id = userinfo.get("id") or userinfo.get("sub")
     email = userinfo.get("email")
 
