@@ -7,10 +7,12 @@ VALID_AUTH_PROVIDERS = {"google"}
 
 
 def normalize_email(email: str) -> str:
+    """Normalize an email address for lookup and persistence."""
     return email.strip().lower()
 
 
 def get_user_by_email(db: Session, email: str) -> User | None:
+    """Return a user by normalized email address."""
     normalized_email = normalize_email(email)
 
     return (
@@ -21,6 +23,7 @@ def get_user_by_email(db: Session, email: str) -> User | None:
 
 
 def get_user_by_id(db: Session, user_id: str) -> User | None:
+    """Return a user by id."""
     return (
         db.query(User)
         .filter(User.id == user_id)
@@ -35,6 +38,7 @@ def get_or_create_oauth_user(
     email: str,
     full_name: str | None = None,
 ) -> User:
+    """Return an OAuth user, creating one when needed."""
     normalized_provider = provider.strip().lower()
     normalized_email = normalize_email(email)
 
