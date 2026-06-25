@@ -1,6 +1,13 @@
+import importlib
 from abc import ABC, abstractmethod
+from typing import Any
 
 from app.config.settings import settings
+
+try:
+    OpenAI: Any | None = importlib.import_module("openai").OpenAI
+except ImportError:
+    OpenAI = None
 
 
 class LLMClient(ABC):
@@ -33,12 +40,10 @@ class OpenAILLMClient(LLMClient):
         if not model_name or not model_name.strip():
             raise ValueError("OPENAI_MODEL_NAME is required")
 
-        try:
-            from openai import OpenAI
-        except ImportError as exc:
+        if OpenAI is None:
             raise ImportError(
                 "openai package is not installed. Run: pipenv install openai"
-            ) from exc
+            )
 
         self.model_name = model_name
         self.client = OpenAI(api_key=api_key)
