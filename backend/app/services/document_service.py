@@ -22,6 +22,7 @@ def create_document_record(
     storage_path: str,
     status: str = "uploaded",
 ) -> Document:
+    """Create and persist metadata for an uploaded document."""
     document = Document(
         user_id=user_id,
         original_file_name=original_file_name,
@@ -50,6 +51,7 @@ def get_documents_by_user(
     search: str | None = None,
     ready_only: bool = False,
 ) -> list[Document]:
+    """Return documents for a user with optional filters."""
     query = db.query(Document).filter(
         Document.user_id == user_id,
         Document.status != "deleted",
@@ -76,6 +78,7 @@ def get_document_by_id(
     document_id: str,
     user_id: str,
 ) -> Document | None:
+    """Return one document owned by a user."""
     return (
         db.query(Document)
         .filter(
@@ -88,6 +91,7 @@ def get_document_by_id(
 
 
 def _remove_document_artifacts(document: Document) -> None:
+    """Remove stored files and derived artifacts for a document."""
     artifact_directories = {
         Path(settings.EXTRACTED_TEXT_DIR) / str(document.user_id) / str(document.id),
         Path(settings.PROCESSED_CHUNKS_DIR) / str(document.user_id) / str(document.id),
@@ -106,6 +110,7 @@ def delete_document_completely(
     document_id: str,
     user_id: str,
 ) -> Document | None:
+    """Delete a document and its related persisted data."""
     document = get_document_by_id(
         db=db,
         document_id=document_id,
@@ -142,6 +147,7 @@ def update_document_status(
     document_id: str,
     status: str,
 ) -> Document | None:
+    """Update and persist a document status."""
     document = (
         db.query(Document)
         .filter(Document.id == document_id)
