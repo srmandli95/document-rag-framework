@@ -18,6 +18,7 @@ from app.models import Document, DocumentChunk
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    """Create database tables during application startup."""
     Base.metadata.create_all(bind=engine)
     yield
 
@@ -49,6 +50,7 @@ app.include_router(auth_router)
 
 @app.get("/")
 def root() -> dict[str, str]:
+    """Return a basic API health message."""
     return {
         "message": "Welcome to the RAG application backend",
         "docs": "/docs",
