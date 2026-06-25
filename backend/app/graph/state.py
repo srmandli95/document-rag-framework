@@ -2,6 +2,7 @@ from typing import Any, TypedDict
 
 
 class RAGState(TypedDict, total=False):
+    """Typed state passed between RAG graph nodes."""
     db: Any
 
     user_id: str
