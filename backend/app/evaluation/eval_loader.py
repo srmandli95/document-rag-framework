@@ -7,6 +7,7 @@ from app.evaluation.eval_models import EvalCase
 
 
 def load_eval_cases(path: str) -> list[EvalCase]:
+    """Load evaluation cases from a JSON file."""
     eval_path = Path(path)
 
     if not eval_path.is_file():
