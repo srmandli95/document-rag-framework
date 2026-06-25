@@ -9,6 +9,7 @@ from app.db.database import Base
 
 
 class DocumentChunk(Base):
+    """Database model for a chunk of extracted document text."""
     __tablename__ = "document_chunks"
 
     id: Mapped[str] = mapped_column(
