@@ -2,12 +2,14 @@ from pydantic import BaseModel, Field
 
 
 class VectorSearchRequest(BaseModel):
+    """API request schema for vector search."""
     user_id: str | None = None
     query: str
     top_k: int = Field(default=5, ge=1, le=20)
 
 
 class VectorSearchResult(BaseModel):
+    """API schema for one vector search result."""
     chunk_id: str
     document_id: str
     user_id: str
@@ -23,6 +25,7 @@ class VectorSearchResult(BaseModel):
 
 
 class VectorSearchResponse(BaseModel):
+    """API response schema for vector search."""
     user_id: str
     query: str
     top_k: int
@@ -30,12 +33,14 @@ class VectorSearchResponse(BaseModel):
     results: list[VectorSearchResult]
 
 class BM25SearchRequest(BaseModel):
+    """API request schema for BM25 search."""
     user_id: str | None = None
     query: str
     top_k: int = Field(default=5, ge=1, le=20)
 
 
 class BM25SearchResult(BaseModel):
+    """API schema for one BM25 search result."""
     chunk_id: str
     document_id: str
     user_id: str
@@ -50,6 +55,7 @@ class BM25SearchResult(BaseModel):
 
 
 class BM25SearchResponse(BaseModel):
+    """API response schema for BM25 search."""
     user_id: str
     query: str
     top_k: int
@@ -57,6 +63,7 @@ class BM25SearchResponse(BaseModel):
     results: list[BM25SearchResult]
 
 class HybridSearchRequest(BaseModel):
+    """API request schema for hybrid search."""
     user_id: str | None = None
     query: str
     top_k: int = 5
@@ -67,6 +74,7 @@ class HybridSearchRequest(BaseModel):
 
 
 class HybridSearchResult(BaseModel):
+    """API schema for one hybrid search result."""
     chunk_id: str
     document_id: str
     user_id: str
@@ -86,6 +94,7 @@ class HybridSearchResult(BaseModel):
 
 
 class HybridSearchResponse(BaseModel):
+    """API response schema for hybrid search."""
     user_id: str
     query: str
     top_k: int
@@ -93,6 +102,7 @@ class HybridSearchResponse(BaseModel):
     results: list[HybridSearchResult]
 
 class RerankSearchRequest(BaseModel):
+    """API request schema for reranked search."""
     user_id: str | None = None
     query: str
     top_k: int = 8
@@ -104,6 +114,7 @@ class RerankSearchRequest(BaseModel):
 
 
 class RerankSearchResult(BaseModel):
+    """API schema for one reranked search result."""
     chunk_id: str
     document_id: str
     user_id: str | None = None
@@ -127,6 +138,7 @@ class RerankSearchResult(BaseModel):
 
 
 class RerankSearchResponse(BaseModel):
+    """API response schema for reranked search."""
     user_id: str
     query: str
     top_k: int
@@ -135,6 +147,7 @@ class RerankSearchResponse(BaseModel):
 
 
 class RetrievalDiagnosticsRequest(BaseModel):
+    """API request schema for retrieval diagnostics."""
     user_id: str | None = None
     query: str
     vector_top_k: int = 10
@@ -146,6 +159,7 @@ class RetrievalDiagnosticsRequest(BaseModel):
 
 
 class RetrievalDiagnosticsSettings(BaseModel):
+    """API schema for diagnostic retrieval settings."""
     vector_top_k: int
     bm25_top_k: int
     hybrid_top_k: int
@@ -155,6 +169,7 @@ class RetrievalDiagnosticsSettings(BaseModel):
 
 
 class RetrievalDiagnosticsResult(BaseModel):
+    """API schema for one diagnostic retrieval result."""
     chunk_id: str | None = None
     document_id: str | None = None
     document_name: str | None = None
@@ -176,6 +191,7 @@ class RetrievalDiagnosticsResult(BaseModel):
 
 
 class RetrievalRankChange(BaseModel):
+    """API schema for a reranking position change."""
     chunk_id: str
     before_rank: int
     after_rank: int
@@ -187,6 +203,7 @@ class RetrievalRankChange(BaseModel):
 
 
 class RetrievalDiagnosticsSummary(BaseModel):
+    """API schema for diagnostic result counts."""
     vector_count: int
     bm25_count: int
     hybrid_count: int
@@ -196,6 +213,7 @@ class RetrievalDiagnosticsSummary(BaseModel):
 
 
 class RetrievalDiagnosticsResponse(BaseModel):
+    """API response schema for retrieval diagnostics."""
     user_id: str
     query: str
     vector_results: list[RetrievalDiagnosticsResult]

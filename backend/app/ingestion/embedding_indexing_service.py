@@ -16,6 +16,7 @@ def embed_document_chunks(
     db: Session,
     document: Document,
 ) -> Dict:
+    """Embed created chunks for a document and persist the vectors."""
     if document.status != "chunked":
         raise ValueError(
             f"Document must be in chunked status before embedding. Current status: {document.status}"

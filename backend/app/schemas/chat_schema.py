@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 
 class AskRequest(BaseModel):
+    """API request schema for asking a chat question."""
     user_id: str | None = None
     question: str
     session_id: str | None = None
@@ -20,6 +21,7 @@ class AskRequest(BaseModel):
 
 
 class AskResponse(BaseModel):
+    """API response schema for an answered chat question."""
     user_id: str
     question: str
     rewritten_question: str | None = None
@@ -42,6 +44,7 @@ class AskResponse(BaseModel):
 
 
 class ChatSessionResponse(BaseModel):
+    """API response schema for a chat session summary."""
     session_id: str
     user_id: str
     title: str
@@ -50,6 +53,7 @@ class ChatSessionResponse(BaseModel):
 
 
 class ChatMessageResponse(BaseModel):
+    """API response schema for a chat message."""
     message_id: str
     session_id: str
     user_id: str
@@ -74,6 +78,7 @@ class ChatMessageResponse(BaseModel):
 
 
 class ChatMessageEvidenceResponse(BaseModel):
+    """API response schema for message evidence chunks."""
     message_id: str
     session_id: str
     user_id: str
@@ -86,17 +91,20 @@ class ChatMessageEvidenceResponse(BaseModel):
 
 
 class ChatSessionListResponse(BaseModel):
+    """API response schema for listing chat sessions."""
     user_id: str
     sessions: list[ChatSessionResponse]
 
 
 class ChatSessionDeleteResponse(BaseModel):
+    """API response schema for deleting a chat session."""
     session_id: str
     user_id: str
     message: str
 
 
 class ChatSessionDetailResponse(BaseModel):
+    """API response schema for a chat session with messages."""
     session_id: str
     user_id: str
     title: str

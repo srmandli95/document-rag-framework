@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 
 
 def extract_html_text(file_path: str) -> str:
+    """Extract readable text from an HTML file."""
     path = Path(file_path)
 
     if not path.exists():

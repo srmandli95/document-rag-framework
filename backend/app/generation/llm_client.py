@@ -32,6 +32,7 @@ class OpenAILLMClient(LLMClient):
     """
 
     def __init__(self, api_key: str, model_name: str):
+        """Initialize the OpenAI client with API credentials and model name."""
         if not api_key or not api_key.strip():
             raise ValueError(
                 "OPENAI_API_KEY is required when LLM_PROVIDER is set to openai"
@@ -49,6 +50,7 @@ class OpenAILLMClient(LLMClient):
         self.client = OpenAI(api_key=api_key)
 
     def generate(self, prompt: str) -> str:
+        """Generate a model response for the supplied prompt."""
         if not prompt or not prompt.strip():
             raise ValueError("prompt is required")
 

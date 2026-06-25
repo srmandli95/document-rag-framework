@@ -19,6 +19,7 @@ from app.retrieval.retrieval_settings import (
 
 
 def build_rag_graph():
+    """Compile the LangGraph workflow used for RAG answering."""
     graph_builder = StateGraph(RAGState)
 
     graph_builder.add_node("load_user_context", load_user_context_node)
@@ -54,6 +55,7 @@ def run_rag_workflow(
     bm25_weight: float = 0.4,
     min_reranker_score: float | None = None,
 ) -> dict[str, Any]:
+    """Run the RAG graph for one user question and return the response."""
     retrieval_settings = validate_retrieval_settings(
         RetrievalSettings(
             top_k=top_k,

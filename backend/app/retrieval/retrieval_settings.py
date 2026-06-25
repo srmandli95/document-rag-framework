@@ -10,6 +10,7 @@ MAX_RERANK_TOP_K = 20
 
 @dataclass(frozen=True)
 class RetrievalSettings:
+    """Normalized retrieval settings used by search and RAG flows."""
     top_k: int = 5
     vector_top_k: int = 20
     bm25_top_k: int = 20
@@ -24,6 +25,7 @@ def normalize_weights(
     vector_weight: float,
     bm25_weight: float,
 ) -> tuple[float, float]:
+    """Normalize vector and BM25 weights to sum to one."""
     if not isfinite(vector_weight):
         raise ValueError("vector_weight must be finite")
     if not isfinite(bm25_weight):
@@ -45,6 +47,7 @@ def validate_retrieval_settings(
     *,
     require_final_top_k_within_rerank: bool = False,
 ) -> RetrievalSettings:
+    """Validate retrieval limits, weights, and reranker thresholds."""
     limits = (
         ("top_k", settings.top_k, MAX_TOP_K),
         ("vector_top_k", settings.vector_top_k, MAX_CANDIDATE_K),

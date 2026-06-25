@@ -15,6 +15,7 @@ class CrossEncoderReranker:
     """
 
     def __init__(self, model_name: str):
+        """Load the cross-encoder model used for reranking."""
         if not model_name or not model_name.strip():
             raise ValueError("model_name is required")
 
@@ -27,6 +28,7 @@ class CrossEncoderReranker:
         candidates: list[dict[str, Any]],
         top_k: int = 8,
     ) -> list[dict[str, Any]]:
+        """Score and sort candidate chunks by relevance to a query."""
         if not query or not query.strip():
             raise ValueError("query is required")
 

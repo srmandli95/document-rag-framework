@@ -4,6 +4,7 @@ from pypdf import PdfReader
 
 
 def extract_pdf_text(file_path: str) -> str:
+    """Extract plain text from a PDF file."""
     path = Path(file_path)
 
     if not path.exists():

@@ -17,6 +17,7 @@ from app.reranking.reranking_service import rerank_hybrid_results
 
 
 def _extract_llm_text(response: Any) -> str:
+    """Extract plain text from supported LLM response shapes."""
     if response is None:
         return ""
 
@@ -40,6 +41,7 @@ def _extract_llm_text(response: Any) -> str:
 
 
 def load_user_context_node(state: RAGState) -> RAGState:
+    """Attach basic user context to the RAG graph state."""
     state["user_context"] = {
         "user_id": state.get("user_id"),
     }
@@ -48,6 +50,7 @@ def load_user_context_node(state: RAGState) -> RAGState:
 
 
 def rewrite_query_node(state: RAGState) -> RAGState:
+    """Rewrite the user question before retrieval when possible."""
     original_question = state.get("question") or ""
 
     try:
@@ -69,6 +72,7 @@ def rewrite_query_node(state: RAGState) -> RAGState:
 
 
 def retrieve_and_rerank_node(state: RAGState) -> RAGState:
+    """Retrieve, combine, and rerank candidate evidence chunks."""
     db = state["db"]
     user_id = state["user_id"]
 
@@ -100,6 +104,7 @@ def retrieve_and_rerank_node(state: RAGState) -> RAGState:
 
 
 def check_evidence_sufficiency_node(state: RAGState) -> RAGState:
+    """Assess whether retrieved evidence can support an answer."""
     evidence_chunks = state.get("evidence_chunks", [])
     min_reranker_score = state.get("min_reranker_score")
 
@@ -129,6 +134,7 @@ def check_evidence_sufficiency_node(state: RAGState) -> RAGState:
 
 
 def generate_answer_node(state: RAGState) -> RAGState:
+    """Generate or refuse an answer from the current graph state."""
     if state.get("status") == "refused" or state.get("evidence_sufficient") is False:
         refusal_message = state.get("generated_answer") or get_refusal_message()
 
@@ -162,6 +168,7 @@ def generate_answer_node(state: RAGState) -> RAGState:
 
 
 def validate_citations_node(state: RAGState) -> RAGState:
+    """Validate generated citations against retrieved evidence."""
     if state.get("status") == "refused":
         state["validation_status"] = state.get("validation_status") or "unsupported"
         state["validation_reason"] = state.get("validation_reason") or "Evidence was insufficient."
@@ -189,6 +196,7 @@ def validate_citations_node(state: RAGState) -> RAGState:
 
 
 def final_response_node(state: RAGState) -> RAGState:
+    """Build the final API response from graph state."""
     final_answer = state.get("final_answer") or state.get("generated_answer") or get_refusal_message()
     evidence_chunks = state.get("evidence_chunks", [])
 

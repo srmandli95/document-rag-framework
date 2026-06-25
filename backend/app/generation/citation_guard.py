@@ -25,6 +25,7 @@ CITATION_FIELDS = [
 def build_citations_from_evidence(
     evidence_chunks: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    """Build response citations from retrieved evidence chunks."""
     citations: list[dict[str, Any]] = []
 
     for chunk in evidence_chunks:
@@ -46,6 +47,7 @@ def citation_chunk_ids_are_valid(
     citations: list[dict[str, Any]],
     evidence_chunks: list[dict[str, Any]],
 ) -> bool:
+    """Validate that every citation points to retrieved evidence."""
     evidence_chunk_ids = {
         chunk.get("chunk_id") or chunk.get("id")
         for chunk in evidence_chunks
@@ -72,6 +74,7 @@ def check_evidence_sufficiency(
     min_evidence_chunks: int = 1,
     min_reranker_score: float | None = None,
 ) -> dict[str, Any]:
+    """Determine whether retrieved evidence is sufficient to answer."""
     if not evidence_chunks:
         return {
             "evidence_sufficient": False,
@@ -133,6 +136,7 @@ def has_sufficient_evidence(
 
 
 def _unsupported_result(reason: str) -> dict[str, Any]:
+    """Build an unsupported validation result."""
     return {
         "validation_status": "unsupported",
         "validation_reason": reason,
@@ -146,6 +150,7 @@ def _supported_result(
     citations: list[dict[str, Any]],
     reason: str = "Answer citations match retrieved evidence chunks.",
 ) -> dict[str, Any]:
+    """Build a supported validation result."""
     return {
         "validation_status": "supported",
         "validation_reason": reason,

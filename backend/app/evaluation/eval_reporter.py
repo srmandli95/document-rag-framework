@@ -7,10 +7,12 @@ from app.evaluation.eval_models import EvalRegressionResult, EvalRunResult
 
 
 def eval_run_to_dict(result: EvalRunResult) -> dict[str, Any]:
+    """Serialize an evaluation run to a plain dictionary."""
     return result.model_dump()
 
 
 def _create_parent_directory(path: Path) -> None:
+    """Create a report output directory when one is configured."""
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
@@ -18,6 +20,7 @@ def _create_parent_directory(path: Path) -> None:
 
 
 def save_eval_result_json(result: EvalRunResult, output_path: str) -> None:
+    """Save an evaluation run as formatted JSON."""
     path = Path(output_path)
     _create_parent_directory(path)
     try:
@@ -30,6 +33,7 @@ def save_eval_result_json(result: EvalRunResult, output_path: str) -> None:
 
 
 def load_eval_result_json(path: str) -> dict[str, Any]:
+    """Load an evaluation run from a JSON report file."""
     eval_path = Path(path)
     try:
         payload = json.loads(eval_path.read_text(encoding="utf-8"))
@@ -48,14 +52,17 @@ def load_eval_result_json(path: str) -> dict[str, Any]:
 
 
 def _display(value: str | None) -> str:
+    """Format optional values for Markdown output."""
     return value if value else "Not provided"
 
 
 def _format_case_ids(case_ids: list[str]) -> str:
+    """Format case ids for compact Markdown display."""
     return ", ".join(case_ids) if case_ids else "None"
 
 
 def _answer_preview(answer: str, limit: int = 300) -> str:
+    """Return a shortened one-line preview of an answer."""
     normalized = " ".join(answer.split())
     if len(normalized) <= limit:
         return normalized
@@ -63,10 +70,12 @@ def _answer_preview(answer: str, limit: int = 300) -> str:
 
 
 def _escape_table_value(value: str) -> str:
+    """Escape Markdown table delimiters in a cell value."""
     return value.replace("|", r"\|").replace("\n", " ")
 
 
 def _diagnostics_command(user_id: str, question: str) -> str:
+    """Build the retrieval diagnostics command for a case."""
     inner_command = (
         "PYTHONPATH=/app python scripts/diagnose_retrieval.py "
         f"--user-id {shlex.quote(user_id)} --query {shlex.quote(question)}"
@@ -78,6 +87,7 @@ def generate_markdown_report(
     result: EvalRunResult,
     regression: EvalRegressionResult | None = None,
 ) -> str:
+    """Generate a Markdown summary for an evaluation run."""
     lines = [
         "# RAG Evaluation Report",
         "",
@@ -163,6 +173,7 @@ def save_markdown_report(
     output_path: str,
     regression: EvalRegressionResult | None = None,
 ) -> None:
+    """Write an evaluation Markdown report to disk."""
     path = Path(output_path)
     _create_parent_directory(path)
     try:

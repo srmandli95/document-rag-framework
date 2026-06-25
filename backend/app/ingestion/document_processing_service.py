@@ -25,28 +25,34 @@ SUCCESS_STATUSES = {"completed", "success", "extracted", "chunked", "embedded"}
 
 
 def _step_result(name: str, status: str, message: str) -> DocumentProcessingStep:
+    """Build the standard status payload for a processing step."""
     return DocumentProcessingStep(name=name, status=status, message=message)
 
 
 def _serialized_steps(steps: list[DocumentProcessingStep]) -> list[dict]:
+    """Serialize processing step results for job metadata."""
     return [step.model_dump() for step in steps]
 
 
 def _get_response_value(response: Any, field_name: str, default: Any = None) -> Any:
+    """Read a value from a response object or dictionary."""
     if isinstance(response, dict):
         return response.get(field_name, default)
     return getattr(response, field_name, default)
 
 
 def _is_successful_step(response: Any) -> bool:
+    """Return whether a processing step completed successfully."""
     return str(_get_response_value(response, "status", "")).lower() in SUCCESS_STATUSES
 
 
 def _message_from_response(response: Any, default: str) -> str:
+    """Extract a message from a processing step response."""
     return _get_response_value(response, "message", None) or default
 
 
 def _is_deleted_document(document: Document) -> bool:
+    """Return whether a SQLAlchemy error indicates a deleted document."""
     return (
         getattr(document, "status", None) == "deleted"
         or getattr(document, "is_deleted", False)
@@ -55,6 +61,7 @@ def _is_deleted_document(document: Document) -> bool:
 
 
 def _mark_document_failed(db: Session, document: Document, message: str) -> None:
+    """Mark a document as failed and flush the change."""
     document.status = "failed"
     db.add(document)
     db.commit()
@@ -62,6 +69,7 @@ def _mark_document_failed(db: Session, document: Document, message: str) -> None
 
 
 def _refresh_document(db: Session, document: Document) -> Document:
+    """Refresh a document model from the database when possible."""
     db.refresh(document)
     return document
 
@@ -73,6 +81,7 @@ def _response(
     steps: list[DocumentProcessingStep],
     message: str,
 ) -> DocumentProcessingResponse:
+    """Build the final document processing response payload."""
     return DocumentProcessingResponse(
         document_id=str(document.id),
         user_id=document.user_id,

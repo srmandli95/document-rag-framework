@@ -14,6 +14,7 @@ logger = get_logger(__name__)
 
 
 def _credentials_exception(detail: str) -> HTTPException:
+    """Build the standard authentication failure exception."""
     return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail=detail,
@@ -22,6 +23,7 @@ def _credentials_exception(detail: str) -> HTTPException:
 
 
 def _get_user_from_token(token: str, db: Session) -> User:
+    """Decode a bearer token and load the matching user."""
     try:
         payload = decode_access_token(token)
         user = db.query(User).filter(User.id == str(payload["sub"])).first()
@@ -77,6 +79,7 @@ def get_optional_current_user(
     session_cookie: str | None = Cookie(default=None, alias=settings.AUTH_COOKIE_NAME),
     db: Session = Depends(get_db),
 ) -> User | None:
+    """Return the current user when credentials are present, otherwise None."""
     token = (
         credentials.credentials
         if credentials is not None and credentials.scheme.lower() == "bearer"
@@ -104,4 +107,5 @@ def get_optional_current_user(
 def get_current_user_id(
     current_user: User = Depends(get_current_user),
 ) -> str:
+    """Return the authenticated user id as a string."""
     return str(current_user.id)

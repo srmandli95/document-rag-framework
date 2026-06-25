@@ -12,6 +12,7 @@ from app.graph.rag_graph import run_rag_workflow
 
 
 def _get_model_name() -> str:
+    """Return the configured model name for response metadata."""
     provider = getattr(settings, "LLM_PROVIDER", "openai").lower().strip()
 
     if provider == "openai":
@@ -27,6 +28,7 @@ def _refused_response(
     model_name: str,
     validation_reason: str,
 ) -> dict[str, Any]:
+    """Build a refusal response when evidence is insufficient."""
     return {
         "user_id": user_id,
         "question": question,
@@ -53,6 +55,7 @@ def generate_answer_from_evidence(
     bm25_weight: float = 0.4,
     min_reranker_score: float | None = None,
 ) -> dict[str, Any]:
+    """Generate an answer by running the RAG workflow over retrieved evidence."""
     return run_rag_workflow(
         db=db,
         user_id=user_id,

@@ -14,6 +14,7 @@ REFUSAL_PHRASES = (
 
 
 def contains_expected_terms(answer: str, expected_terms: list[str]) -> bool:
+    """Check whether an answer contains all required terms."""
     normalized_answer = answer.casefold()
     return all(term.casefold() in normalized_answer for term in expected_terms)
 
@@ -22,6 +23,7 @@ def citations_contain_expected_documents(
     citations: list[dict],
     expected_document_terms: list[str],
 ) -> bool:
+    """Check whether citations reference the expected documents."""
     if not expected_document_terms:
         return True
 
@@ -41,6 +43,7 @@ def citations_contain_expected_documents(
 
 
 def is_refusal_response(answer_response: dict) -> bool:
+    """Determine whether an answer is a refusal response."""
     status = str(answer_response.get("status") or "").casefold()
     validation_status = str(
         answer_response.get("validation_status") or ""
@@ -58,11 +61,13 @@ def citations_are_present_if_needed(
     answer_response: dict,
     expected_refusal: bool,
 ) -> bool:
+    """Validate citation presence for cases that require support."""
     citations = answer_response.get("citations") or []
     return not citations if expected_refusal else bool(citations)
 
 
 def _citation_chunk_ids_are_valid(answer_response: dict) -> bool:
+    """Check that citation chunk ids exist in the retrieved evidence."""
     citations = answer_response.get("citations") or []
     evidence_chunks = answer_response.get("evidence_chunks") or []
 
@@ -81,6 +86,7 @@ def _citation_chunk_ids_are_valid(answer_response: dict) -> bool:
 
 
 def _evidence_chunk_count(answer_response: dict[str, Any]) -> int:
+    """Return the number of evidence chunks in an answer response."""
     count = answer_response.get("evidence_chunk_count")
     if isinstance(count, int):
         return count
@@ -91,6 +97,7 @@ def evaluate_answer_response(
     case: EvalCase,
     answer_response: dict,
 ) -> EvalCaseResult:
+    """Score one answer response against an evaluation case."""
     answer = str(answer_response.get("answer") or "")
     citations = answer_response.get("citations") or []
     citation_count = len(citations)

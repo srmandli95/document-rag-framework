@@ -22,6 +22,7 @@ def run_rag_evaluation(
     bm25_weight: float = 0.4,
     min_reranker_score: float | None = None,
 ) -> EvalRunResult:
+    """Run the configured RAG evaluation cases against the app."""
     retrieval_settings = validate_retrieval_settings(
         RetrievalSettings(
             top_k=top_k,

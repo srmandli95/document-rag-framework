@@ -9,6 +9,7 @@ def create_document_chunks(
     user_id: str,
     chunks: list[dict],
 ) -> list[DocumentChunk]:
+    """Create chunk records for extracted document text."""
     document_chunks: list[DocumentChunk] = []
 
     for chunk in chunks:
@@ -39,6 +40,7 @@ def get_chunks_by_document(
     document_id: str,
     user_id: str,
 ) -> list[DocumentChunk]:
+    """Return chunks for a document in chunk order."""
     return get_chunks_by_document_for_user(
         db=db,
         document_id=document_id,
@@ -51,6 +53,7 @@ def get_chunk_by_id(
     chunk_id: str,
     user_id: str,
 ) -> DocumentChunk | None:
+    """Return one chunk by id."""
     return (
         db.query(DocumentChunk)
         .filter(DocumentChunk.id == chunk_id)
@@ -65,6 +68,7 @@ def get_chunks_by_document_for_user(
     document_id: str,
     user_id: str,
 ) -> list[DocumentChunk]:
+    """Return chunks for a document owned by a user."""
     return (
         db.query(DocumentChunk)
         .filter(DocumentChunk.document_id == document_id)
@@ -80,6 +84,7 @@ def get_created_chunks_by_document(
     document_id: str,
     user_id: str,
 ) -> list[DocumentChunk]:
+    """Return chunks that are ready to be embedded."""
     return (
         db.query(DocumentChunk)
         .filter(DocumentChunk.document_id == document_id)
@@ -96,6 +101,7 @@ def update_chunk_embedding(
     embedding: list[float],
     status: str = "embedded",
 ) -> DocumentChunk | None:
+    """Store an embedding vector on a chunk."""
     chunk = (
         db.query(DocumentChunk)
         .filter(DocumentChunk.id == chunk_id)
@@ -119,6 +125,7 @@ def update_chunks_with_embeddings(
     chunks: list[DocumentChunk],
     embeddings: list[list[float]],
 ) -> list[DocumentChunk]:
+    """Store embedding vectors on a batch of chunks."""
     if len(chunks) != len(embeddings):
         raise ValueError("Chunks and embeddings count must match.")
 
@@ -142,6 +149,7 @@ def delete_chunks_by_document(
     document_id: str,
     user_id: str,
 ) -> int:
+    """Delete all chunks for a document."""
     chunks = (
         db.query(DocumentChunk)
         .filter(DocumentChunk.document_id == document_id)

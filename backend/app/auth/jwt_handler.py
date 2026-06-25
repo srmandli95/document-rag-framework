@@ -7,6 +7,7 @@ from app.config.settings import settings
 
 
 def _sanitize_token_value(value: Any) -> Any:
+    """Normalize token values into JSON-serializable primitives."""
     if isinstance(value, dict):
         return {
             key: _sanitize_token_value(item)
@@ -20,6 +21,7 @@ def _sanitize_token_value(value: Any) -> Any:
 
 
 def _sanitize_token_data(data: dict[str, Any]) -> dict[str, Any]:
+    """Normalize all custom token claims before signing."""
     return _sanitize_token_value(data)
 
 
@@ -27,6 +29,7 @@ def create_access_token(
     data: dict[str, Any],
     expires_delta: timedelta | None = None,
 ) -> str:
+    """Create a JWT access token with an expiration claim."""
     token_data = _sanitize_token_data(data)
 
     expire = datetime.now(timezone.utc) + (
@@ -45,6 +48,7 @@ def create_access_token(
 
 
 def decode_access_token(token: str) -> dict[str, Any]:
+    """Decode and validate a JWT access token."""
     try:
         payload = jwt.decode(
             token,

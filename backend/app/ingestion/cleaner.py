@@ -2,6 +2,7 @@ import re
 
 
 def clean_text(text: str) -> str:
+    """Normalize extracted document text before chunking."""
     if not text:
         return ""
 

@@ -11,6 +11,7 @@ def extract_text_from_file(
     content_type: str,
     file_extension: str,
 ) -> str:
+    """Dispatch text extraction based on document content type or extension."""
     extension = file_extension.lower().strip()
     content_type = content_type.lower().strip()
 

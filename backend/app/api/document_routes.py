@@ -85,6 +85,7 @@ SUPPORTED_DOCUMENT_CATEGORIES = {
 
 
 def _validate_category(category: str) -> str:
+    """Return a trimmed category or raise when the upload category is blank."""
     clean_category = category.strip()
 
     if not clean_category:
@@ -97,6 +98,7 @@ def _validate_category(category: str) -> str:
 
 
 def _validate_file(file: UploadFile) -> None:
+    """Validate that an uploaded file has a supported name and content type."""
     if not file.filename:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -119,6 +121,7 @@ def _validate_file(file: UploadFile) -> None:
 
 
 async def _get_file_size_bytes(file: UploadFile) -> int:
+    """Measure an upload without consuming the stream for later storage."""
     contents = await file.read()
     file_size_bytes = len(contents)
 
@@ -136,6 +139,7 @@ async def _get_file_size_bytes(file: UploadFile) -> int:
 
 
 def _display_status(document_status: str, job=None) -> str:
+    """Map internal document and job states to frontend display statuses."""
     if document_status == "embedded":
         return "ready"
     if document_status == "failed" or getattr(job, "status", None) == "failed":
@@ -159,6 +163,7 @@ def _display_status(document_status: str, job=None) -> str:
 
 
 def _process_document_in_background(document_id: str, user_id: str, job_id: str) -> None:
+    """Process an uploaded document in a fresh database session."""
     db = SessionLocal()
     try:
         document = get_document_by_id(db=db, document_id=document_id, user_id=user_id)
@@ -170,6 +175,7 @@ def _process_document_in_background(document_id: str, user_id: str, job_id: str)
 
 
 def _to_document_metadata(document, job=None) -> DocumentMetadata:
+    """Convert a document model and optional job into API response metadata."""
     return DocumentMetadata(
         document_id=document.id,
         user_id=document.user_id,
