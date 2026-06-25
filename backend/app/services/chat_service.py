@@ -9,6 +9,7 @@ from app.models.chat_session import ChatSession
 
 
 def _build_default_title(question: str | None) -> str:
+    """Build a default chat title from the first question."""
     if not question:
         return "New Chat"
 
@@ -24,6 +25,7 @@ async def create_chat_session(
     user_id: str,
     title: str | None = None,
 ) -> ChatSession:
+    """Create and persist a new chat session."""
     session = ChatSession(
         user_id=user_id,
         title=title or "New Chat",
@@ -41,6 +43,7 @@ async def get_chat_session(
     session_id: str,
     user_id: str,
 ) -> ChatSession | None:
+    """Return one chat session owned by a user."""
     result = await db.execute(
         select(ChatSession).where(
             ChatSession.id == session_id,
@@ -57,6 +60,7 @@ async def get_or_create_chat_session(
     session_id: str | None,
     question: str,
 ) -> ChatSession:
+    """Return an existing session or create one for a new chat."""
     if session_id:
         existing_session = await get_chat_session(
             db=db,
@@ -85,6 +89,7 @@ async def create_chat_message(
     question: str,
     answer_response: dict[str, Any],
 ) -> ChatMessage:
+    """Persist a chat message and its generated answer metadata."""
     evidence_chunks = answer_response.get("evidence_chunks") or []
     citations = answer_response.get("citations") or []
 
@@ -128,6 +133,7 @@ async def get_chat_sessions_by_user(
     db: AsyncSession,
     user_id: str,
 ) -> list[ChatSession]:
+    """Return all chat sessions owned by a user."""
     result = await db.execute(
         select(ChatSession)
         .where(ChatSession.user_id == user_id)
@@ -142,6 +148,7 @@ async def get_chat_messages_by_session(
     session_id: str,
     user_id: str,
 ) -> list[ChatMessage]:
+    """Return messages in an owned chat session."""
     result = await db.execute(
         select(ChatMessage)
         .where(
@@ -159,6 +166,7 @@ async def get_chat_message_by_id(
     message_id: str,
     user_id: str,
 ) -> ChatMessage | None:
+    """Return one chat message owned by a user."""
     result = await db.execute(
         select(ChatMessage).where(
             ChatMessage.id == message_id,
@@ -174,6 +182,7 @@ async def delete_chat_session(
     session_id: str,
     user_id: str,
 ) -> ChatSession | None:
+    """Delete an owned chat session and its messages."""
     chat_session = await get_chat_session(
         db=db,
         session_id=session_id,
