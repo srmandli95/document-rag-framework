@@ -33,6 +33,7 @@ def normalize_scores(scores: list[float]) -> list[float]:
 
 
 def _validate_identity_and_query(user_id: str, query: str) -> None:
+    """Validate user id and query inputs for retrieval."""
     if not user_id or not user_id.strip():
         raise ValueError("user_id is required")
 
