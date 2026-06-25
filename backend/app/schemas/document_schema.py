@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class DocumentMetadata(BaseModel):
+    """Shared API schema for document metadata."""
     document_id: str
     user_id: str
     file_name: str
@@ -23,27 +24,32 @@ class DocumentMetadata(BaseModel):
 
 
 class DocumentUploadResponse(DocumentMetadata):
+    """API response schema for document uploads."""
     job_id: str
     message: str
 
 
 class DocumentDetailResponse(DocumentMetadata):
+    """API response schema for document details."""
     message: str = "Document found"
 
 
 class DocumentListResponse(BaseModel):
+    """API response schema for listing documents."""
     user_id: str
     documents: list[DocumentMetadata]
     count: int
 
 
 class DocumentDeleteResponse(BaseModel):
+    """API response schema for document deletion."""
     document_id: str
     user_id: str
     status: str
     message: str
 
 class DocumentExtractionResponse(BaseModel):
+    """API response schema for document text extraction."""
     document_id: str
     user_id: str
     status: str
@@ -52,6 +58,7 @@ class DocumentExtractionResponse(BaseModel):
     message: str
 
 class DocumentChunkingResponse(BaseModel):
+    """API response schema for document chunking."""
     document_id: str
     user_id: str
     status: str
@@ -60,6 +67,7 @@ class DocumentChunkingResponse(BaseModel):
 
 
 class DocumentChunkMetadata(BaseModel):
+    """Shared API schema for document chunk metadata."""
     chunk_id: str
     document_id: str
     user_id: str
@@ -71,18 +79,21 @@ class DocumentChunkMetadata(BaseModel):
 
 
 class DocumentChunkDetailResponse(DocumentChunkMetadata):
+    """API response schema for chunk details."""
     chunk_text: str
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
 
 class DocumentChunkListResponse(BaseModel):
+    """API response schema for listing chunks."""
     document_id: str
     user_id: str
     chunks: list[DocumentChunkDetailResponse]
 
 
 class DocumentEmbeddingResponse(BaseModel):
+    """API response schema for document embedding."""
     document_id: str
     user_id: str
     status: str
@@ -92,12 +103,14 @@ class DocumentEmbeddingResponse(BaseModel):
     message: str
 
 class DocumentProcessingStep(BaseModel):
+    """API schema for one document processing step."""
     name: str
     status: str
     message: str
 
 
 class DocumentProcessingResponse(BaseModel):
+    """API response schema for processing a document."""
     document_id: str | None
     user_id: str | None
     status: str
@@ -107,6 +120,7 @@ class DocumentProcessingResponse(BaseModel):
 
 
 class DocumentProcessingJobResponse(BaseModel):
+    """API response schema for a processing job."""
     job_id: str
     document_id: str
     user_id: str
@@ -122,6 +136,7 @@ class DocumentProcessingJobResponse(BaseModel):
 
 
 class DocumentProcessingJobListResponse(BaseModel):
+    """API response schema for listing processing jobs."""
     document_id: str
     user_id: str
     jobs: list[DocumentProcessingJobResponse]
