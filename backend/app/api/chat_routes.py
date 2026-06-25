@@ -28,6 +28,7 @@ router = APIRouter(prefix="/chat", tags=["Chat"])
 
 
 def _run_rag_workflow_with_session(**kwargs: Any) -> dict[str, Any]:
+    """Run the RAG workflow with the active synchronous database session."""
     db = SessionLocal()
     try:
         return run_rag_workflow(db=db, **kwargs)
@@ -36,6 +37,7 @@ def _run_rag_workflow_with_session(**kwargs: Any) -> dict[str, Any]:
 
 
 def _to_chat_session_response(session: Any) -> ChatSessionResponse:
+    """Convert a chat session model into its API response shape."""
     return ChatSessionResponse(
         session_id=session.id,
         user_id=session.user_id,
@@ -46,6 +48,7 @@ def _to_chat_session_response(session: Any) -> ChatSessionResponse:
 
 
 def _to_chat_message_response(message: Any) -> ChatMessageResponse:
+    """Convert a chat message model into its API response shape."""
     return ChatMessageResponse(
         message_id=message.id,
         session_id=message.session_id,
@@ -208,6 +211,7 @@ async def delete_chat_session(
     async_db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user),
 ) -> ChatSessionDeleteResponse:
+    """Delete an owned chat session and return its identifier."""
     user_id = str(current_user.id)
     chat_session = await chat_service.delete_chat_session(
         db=async_db,
