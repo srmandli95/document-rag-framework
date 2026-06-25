@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api import chat_routes
 from app.auth.dependencies import get_current_user
 from app.db.database import get_async_db, get_db
 from app.main import app
@@ -457,8 +458,6 @@ def override_sync_db():
 
 
 def test_get_chat_sessions_route(monkeypatch):
-    from app.api import chat_routes
-
     fake_sessions = [
         SimpleNamespace(
             id="session-1",
@@ -508,8 +507,6 @@ def test_get_chat_sessions_route_requires_authentication():
 
 
 def test_get_chat_session_detail_route_returns_messages(monkeypatch):
-    from app.api import chat_routes
-
     fake_session = SimpleNamespace(
         id="session-1",
         user_id="user-1",
@@ -579,8 +576,6 @@ def test_get_chat_session_detail_route_returns_messages(monkeypatch):
 
 
 def test_user_cannot_access_other_user_session(monkeypatch):
-    from app.api import chat_routes
-
     async def fake_get_chat_session(db, session_id, user_id):
         assert session_id == "session-owned-by-b"
         assert user_id == "user-a"
@@ -603,8 +598,6 @@ def test_user_cannot_access_other_user_session(monkeypatch):
 
 
 def test_delete_chat_session_route(monkeypatch):
-    from app.api import chat_routes
-
     fake_session = SimpleNamespace(id="session-1", user_id="user-1")
 
     async def fake_delete_chat_session(db, session_id, user_id):
@@ -623,8 +616,6 @@ def test_delete_chat_session_route(monkeypatch):
 
 
 def test_user_cannot_delete_other_user_session(monkeypatch):
-    from app.api import chat_routes
-
     async def fake_delete_chat_session(db, session_id, user_id):
         return None
 
@@ -638,8 +629,6 @@ def test_user_cannot_delete_other_user_session(monkeypatch):
 
 
 def test_chat_ask_creates_session_when_no_session_id(monkeypatch):
-    from app.api import chat_routes
-
     fake_session = SimpleNamespace(
         id="session-1",
         user_id="user-1",
@@ -731,8 +720,6 @@ def test_chat_ask_creates_session_when_no_session_id(monkeypatch):
 
 
 def test_chat_ask_appends_to_existing_session(monkeypatch):
-    from app.api import chat_routes
-
     fake_session = SimpleNamespace(
         id="existing-session",
         user_id="user-1",
@@ -821,8 +808,6 @@ def test_chat_ask_appends_to_existing_session(monkeypatch):
 
 
 def test_chat_ask_returns_404_for_invalid_session_id(monkeypatch):
-    from app.api import chat_routes
-
     async def fake_get_or_create_chat_session(db, user_id, session_id, question):
         assert session_id == "bad-session"
         raise ValueError("Chat session not found for this user.")
@@ -891,8 +876,6 @@ def test_chat_ask_returns_400_when_question_missing():
 
 
 def test_chat_ask_rejects_retrieval_limits_above_maximum(monkeypatch):
-    from app.api import chat_routes
-
     fake_session = SimpleNamespace(
         id="session-1",
         user_id="user-1",
@@ -970,8 +953,6 @@ def test_chat_ask_rejects_retrieval_limits_above_maximum(monkeypatch):
 
 
 def test_chat_ask_passes_normalized_custom_retrieval_settings(monkeypatch):
-    from app.api import chat_routes
-
     fake_session = SimpleNamespace(
         id="session-1",
         user_id="user-1",
@@ -1035,8 +1016,6 @@ def test_chat_ask_passes_normalized_custom_retrieval_settings(monkeypatch):
 
 
 def test_chat_ask_returns_400_when_rag_workflow_raises_value_error(monkeypatch):
-    from app.api import chat_routes
-
     fake_session = SimpleNamespace(
         id="session-1",
         user_id="user-1",
