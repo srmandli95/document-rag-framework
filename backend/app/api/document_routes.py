@@ -199,17 +199,15 @@ async def upload_document(
     background_tasks: BackgroundTasks,
     category: str = Form(...),
     file: UploadFile = File(...),
-    user_id: str | None = Form(default=None),  # Backward compatible, ignored.
+    user_id: str | None = Form(default=None),  # Legacy compatibility field; the JWT identity is authoritative.
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> DocumentUploadResponse:
     """
-    Upload a document for the authenticated user.
+    Upload a document and queue it for processing for the authenticated user.
 
-    Day 20 auth rule:
-    - JWT is required.
-    - user_id from form is ignored.
-    - document owner is current_user.id.
+    The JWT identity determines the document owner. Any legacy `user_id`
+    form field is ignored so clients cannot assign ownership to another user.
     """
     authenticated_user_id = str(current_user.id)
     clean_category = _validate_category(category)
@@ -277,7 +275,7 @@ async def upload_document(
 
 @router.get("", response_model=DocumentListResponse)
 def list_documents(
-    user_id: str | None = Query(default=None),  # Backward compatible, ignored.
+    user_id: str | None = Query(default=None),  # Legacy compatibility field; the JWT identity is authoritative.
     status_filter: str | None = Query(default=None, alias="status"),
     category: str | None = Query(default=None),
     search: str | None = Query(default=None),
@@ -288,9 +286,8 @@ def list_documents(
     """
     List documents owned by the authenticated user.
 
-    Day 20 auth rule:
-    - JWT is required.
-    - query user_id is ignored.
+    The JWT identity is used to scope the result set. Any legacy `user_id`
+    query parameter is ignored.
     """
     authenticated_user_id = str(current_user.id)
     clean_status = status_filter.strip() if status_filter else None
@@ -345,7 +342,7 @@ def list_documents(
 @router.delete("/{document_id}", response_model=DocumentDeleteResponse)
 def delete_document(
     document_id: str,
-    user_id: str | None = Query(default=None),  # Backward compatible, ignored.
+    user_id: str | None = Query(default=None),  # Legacy compatibility field; the JWT identity is authoritative.
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> DocumentDeleteResponse:
