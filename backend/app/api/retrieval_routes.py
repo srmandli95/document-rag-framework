@@ -56,12 +56,10 @@ def vector_search_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> VectorSearchResponse:
     """
-    Vector search scoped to the authenticated user.
+    Run vector search for the authenticated user.
 
-    Day 20 authorization behavior:
-    - Requires JWT.
-    - Ignores request.user_id if older clients still send it.
-    - Uses current_user.id as the real user_id.
+    The JWT identity determines the user scope, and any legacy `user_id`
+    field in the request payload is ignored.
     """
     user_id = str(current_user.id)
     query = _validate_query(request.query)
@@ -96,12 +94,10 @@ def search_bm25_chunks(
     current_user: User = Depends(get_current_user),
 ) -> BM25SearchResponse:
     """
-    BM25 search scoped to the authenticated user.
+    Run BM25 search for the authenticated user.
 
-    Day 20 authorization behavior:
-    - Requires JWT.
-    - Ignores request.user_id if older clients still send it.
-    - Uses current_user.id as the real user_id.
+    The JWT identity determines the user scope, and any legacy `user_id`
+    field in the request payload is ignored.
     """
     user_id = str(current_user.id)
     query = _validate_query(request.query)
@@ -136,12 +132,10 @@ def search_hybrid_chunks(
     current_user: User = Depends(get_current_user),
 ) -> HybridSearchResponse:
     """
-    Hybrid search scoped to the authenticated user.
+    Run hybrid search for the authenticated user.
 
-    Day 20 authorization behavior:
-    - Requires JWT.
-    - Ignores request.user_id if older clients still send it.
-    - Uses current_user.id as the real user_id.
+    The JWT identity determines the user scope, and any legacy `user_id`
+    field in the request payload is ignored.
     """
     user_id = str(current_user.id)
     query = _validate_query(request.query)
@@ -188,12 +182,10 @@ def search_reranked_chunks(
     current_user: User = Depends(get_current_user),
 ) -> RerankSearchResponse:
     """
-    Reranked hybrid search scoped to the authenticated user.
+    Run reranked hybrid search for the authenticated user.
 
-    Day 20 authorization behavior:
-    - Requires JWT.
-    - Ignores request.user_id if older clients still send it.
-    - Uses current_user.id as the real user_id.
+    The JWT identity determines the user scope, and any legacy `user_id`
+    field in the request payload is ignored.
     """
     user_id = str(current_user.id)
     query = _validate_query(request.query)
