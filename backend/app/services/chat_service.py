@@ -6,6 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chat_message import ChatMessage
 from app.models.chat_session import ChatSession
+from app.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 def _build_default_title(question: str | None) -> str:
@@ -35,6 +39,7 @@ async def create_chat_session(
     await db.commit()
     await db.refresh(session)
 
+    logger.info("Chat session created: user_id=%s session_id=%s", user_id, session.id)
     return session
 
 
@@ -69,8 +74,14 @@ async def get_or_create_chat_session(
         )
 
         if existing_session is None:
+            logger.warning(
+                "Chat session lookup failed: user_id=%s session_id=%s",
+                user_id,
+                session_id,
+            )
             raise ValueError("Chat session not found for this user.")
 
+        logger.debug("Chat session reused: user_id=%s session_id=%s", user_id, session_id)
         return existing_session
 
     title = _build_default_title(question)
@@ -126,6 +137,13 @@ async def create_chat_message(
     await db.commit()
     await db.refresh(message)
 
+    logger.info(
+        "Chat message created: user_id=%s session_id=%s message_id=%s status=%s",
+        user_id,
+        session_id,
+        message.id,
+        message.status,
+    )
     return message
 
 
@@ -190,6 +208,11 @@ async def delete_chat_session(
     )
 
     if chat_session is None:
+        logger.warning(
+            "Chat session delete skipped; session not found: user_id=%s session_id=%s",
+            user_id,
+            session_id,
+        )
         return None
 
     await db.execute(
@@ -201,4 +224,5 @@ async def delete_chat_session(
     await db.delete(chat_session)
     await db.commit()
 
+    logger.info("Chat session deleted: user_id=%s session_id=%s", user_id, session_id)
     return chat_session
