@@ -10,6 +10,10 @@ from app.services.document_chunk_service import (
     update_chunks_with_embeddings,
 )
 from app.services.document_service import update_document_status
+from app.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 def embed_document_chunks(
@@ -18,11 +22,22 @@ def embed_document_chunks(
 ) -> Dict:
     """Embed created chunks for a document and persist the vectors."""
     if document.status != "chunked":
+        logger.warning(
+            "Document embedding rejected: document_id=%s user_id=%s status=%s",
+            document.id,
+            document.user_id,
+            document.status,
+        )
         raise ValueError(
             f"Document must be in chunked status before embedding. Current status: {document.status}"
         )
 
     try:
+        logger.info(
+            "Document embedding started: document_id=%s user_id=%s",
+            document.id,
+            document.user_id,
+        )
         chunks = get_created_chunks_by_document(
             db=db,
             document_id=document.id,
@@ -30,6 +45,11 @@ def embed_document_chunks(
         )
 
         if not chunks:
+            logger.warning(
+                "Document embedding found no created chunks: document_id=%s user_id=%s",
+                document.id,
+                document.user_id,
+            )
             raise ValueError("No created chunks found for this document.")
 
         update_document_status(
@@ -55,6 +75,14 @@ def embed_document_chunks(
             status="embedded",
         )
 
+        logger.info(
+            "Document embedding completed: document_id=%s user_id=%s chunks=%s provider=%s model=%s",
+            document.id,
+            document.user_id,
+            len(chunks),
+            settings.EMBEDDING_PROVIDER,
+            settings.EMBEDDING_MODEL_NAME,
+        )
         return {
             "document_id": document.id,
             "user_id": document.user_id,
@@ -66,6 +94,11 @@ def embed_document_chunks(
         }
 
     except Exception:
+        logger.exception(
+            "Document embedding failed: document_id=%s user_id=%s",
+            document.id,
+            document.user_id,
+        )
         update_document_status(
             db=db,
             document_id=document.id,
