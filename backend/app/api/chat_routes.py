@@ -22,15 +22,22 @@ from app.schemas.chat_schema import (
     ChatSessionResponse,
 )
 from app.services import chat_service
+from app.utils.logger import get_logger
 
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
+logger = get_logger(__name__)
 
 
 def _run_rag_workflow_with_session(**kwargs: Any) -> dict[str, Any]:
     """Run the RAG workflow with the active synchronous database session."""
     db = SessionLocal()
     try:
+        logger.debug(
+            "RAG workflow thread started: user_id=%s top_k=%s",
+            kwargs.get("user_id"),
+            kwargs.get("top_k"),
+        )
         return run_rag_workflow(db=db, **kwargs)
     finally:
         db.close()
@@ -85,6 +92,7 @@ async def ask_question(
     - Saves chat messages under the authenticated user only.
     """
     if not request.question or not request.question.strip():
+        logger.warning("Chat ask rejected: empty question")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="question is required",
@@ -92,6 +100,12 @@ async def ask_question(
 
     user_id = str(current_user.id)
     question = request.question.strip()
+    logger.info(
+        "Chat ask received: user_id=%s session_id=%s question_length=%s",
+        user_id,
+        request.session_id,
+        len(question),
+    )
 
     try:
         retrieval_settings = validate_retrieval_settings(
@@ -108,6 +122,11 @@ async def ask_question(
             require_final_top_k_within_rerank=True,
         )
     except ValueError as exc:
+        logger.warning(
+            "Chat ask rejected by retrieval settings: user_id=%s error=%s",
+            user_id,
+            exc,
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
@@ -121,6 +140,11 @@ async def ask_question(
             question=question,
         )
     except ValueError as exc:
+        logger.warning(
+            "Chat ask rejected because session was not found: user_id=%s session_id=%s",
+            user_id,
+            request.session_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
@@ -141,10 +165,14 @@ async def ask_question(
             min_reranker_score=retrieval_settings.min_reranker_score,
         )
     except ValueError as exc:
+        logger.warning("RAG workflow rejected chat ask: user_id=%s error=%s", user_id, exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+    except Exception:
+        logger.exception("RAG workflow failed unexpectedly: user_id=%s", user_id)
+        raise
 
     chat_message = await chat_service.create_chat_message(
         db=async_db,
@@ -154,6 +182,14 @@ async def ask_question(
         answer_response=result,
     )
 
+    logger.info(
+        "Chat ask completed: user_id=%s session_id=%s message_id=%s status=%s evidence_chunks=%s",
+        user_id,
+        chat_session.id,
+        chat_message.id,
+        result.get("status"),
+        result.get("evidence_chunk_count") or len(result.get("evidence_chunks") or []),
+    )
     return AskResponse(
         user_id=user_id,
         question=result.get("question") or question,
@@ -187,6 +223,7 @@ async def list_chat_sessions(
     - Does not accept or trust query user_id.
     """
     user_id = str(current_user.id)
+    logger.debug("Listing chat sessions: user_id=%s", user_id)
 
     sessions = await chat_service.get_chat_sessions_by_user(
         db=async_db,
@@ -213,6 +250,11 @@ async def delete_chat_session(
 ) -> ChatSessionDeleteResponse:
     """Delete an owned chat session and return its identifier."""
     user_id = str(current_user.id)
+    logger.info(
+        "Chat session delete requested: user_id=%s session_id=%s",
+        user_id,
+        session_id,
+    )
     chat_session = await chat_service.delete_chat_session(
         db=async_db,
         session_id=session_id,
@@ -220,6 +262,11 @@ async def delete_chat_session(
     )
 
     if chat_session is None:
+        logger.warning(
+            "Chat session delete requested for missing session: user_id=%s session_id=%s",
+            user_id,
+            session_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Chat session not found",
@@ -247,6 +294,11 @@ async def get_chat_session_detail(
     - Returns 404 if the session belongs to another user.
     """
     user_id = str(current_user.id)
+    logger.debug(
+        "Chat session detail requested: user_id=%s session_id=%s",
+        user_id,
+        session_id,
+    )
 
     chat_session = await chat_service.get_chat_session(
         db=async_db,
@@ -255,6 +307,11 @@ async def get_chat_session_detail(
     )
 
     if chat_session is None:
+        logger.warning(
+            "Chat session detail requested for missing session: user_id=%s session_id=%s",
+            user_id,
+            session_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Chat session not found",

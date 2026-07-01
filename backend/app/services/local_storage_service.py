@@ -4,6 +4,10 @@ from typing import BinaryIO
 
 from app.config.settings import settings
 from app.services.storage_service import StorageService
+from app.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 class LocalStorageService(StorageService):
@@ -12,6 +16,7 @@ class LocalStorageService(StorageService):
     def __init__(self, base_dir: str | None = None) -> None:
         """Initialize storage under the configured raw documents directory."""
         self.base_dir = Path(base_dir or settings.RAW_DOCUMENTS_DIR)
+        logger.debug("Local storage initialized: base_dir=%s", self.base_dir)
 
     def save_file(
         self,
@@ -35,6 +40,13 @@ class LocalStorageService(StorageService):
                 file_size_bytes += len(chunk)
                 dest_file.write(chunk)
 
+        logger.info(
+            "File saved to local storage: user_id=%s document_id=%s file_name=%s size_bytes=%s",
+            user_id,
+            document_id,
+            safe_file_name,
+            file_size_bytes,
+        )
         return {
             "storage_provider": "local",
             "storage_path": str(destination_path),
@@ -47,12 +59,17 @@ class LocalStorageService(StorageService):
         path = Path(storage_path)
         if path.exists() and path.is_file():
             path.unlink()
+            logger.info("Deleted local storage file: storage_path=%s", storage_path)
+        else:
+            logger.debug("Local storage delete skipped; file missing: storage_path=%s", storage_path)
 
     def get_file(self, storage_path: str) -> str:
         """Return the filesystem path for a stored file, or raise if it is missing."""
         path = Path(storage_path)
         if path.exists() and path.is_file():
+            logger.debug("Resolved local storage file: storage_path=%s", storage_path)
             return str(path)
+        logger.warning("Local storage file not found: storage_path=%s", storage_path)
         raise FileNotFoundError(f"File not found at path: {storage_path}")
 
     def get_file_path(self, storage_path: str) -> str:

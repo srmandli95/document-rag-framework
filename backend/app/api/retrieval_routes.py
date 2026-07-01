@@ -25,14 +25,17 @@ from app.schemas.retrieval_schema import (
     VectorSearchRequest,
     VectorSearchResponse,
 )
+from app.utils.logger import get_logger
 
 
 router = APIRouter(prefix="/search", tags=["Retrieval"])
+logger = get_logger(__name__)
 
 
 def _validate_query(query: str | None) -> str:
     """Return a trimmed search query or raise when it is empty."""
     if not query or not query.strip():
+        logger.warning("Retrieval request rejected: empty query")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="query is required",
@@ -66,6 +69,12 @@ def vector_search_endpoint(
     user_id = str(current_user.id)
     query = _validate_query(request.query)
     top_k = _safe_positive_top_k(request.top_k, default=5, maximum=20)
+    logger.info(
+        "Vector search requested: user_id=%s query_length=%s top_k=%s",
+        user_id,
+        len(query),
+        top_k,
+    )
 
     try:
         results = vector_search(
@@ -75,11 +84,13 @@ def vector_search_endpoint(
             top_k=top_k,
         )
     except ValueError as exc:
+        logger.warning("Vector search rejected: user_id=%s error=%s", user_id, exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
 
+    logger.info("Vector search completed: user_id=%s result_count=%s", user_id, len(results))
     return VectorSearchResponse(
         user_id=user_id,
         query=query,
@@ -106,6 +117,12 @@ def search_bm25_chunks(
     user_id = str(current_user.id)
     query = _validate_query(request.query)
     top_k = _safe_positive_top_k(request.top_k, default=5, maximum=20)
+    logger.info(
+        "BM25 search requested: user_id=%s query_length=%s top_k=%s",
+        user_id,
+        len(query),
+        top_k,
+    )
 
     try:
         results = bm25_search(
@@ -115,11 +132,13 @@ def search_bm25_chunks(
             top_k=top_k,
         )
     except ValueError as exc:
+        logger.warning("BM25 search rejected: user_id=%s error=%s", user_id, exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
 
+    logger.info("BM25 search completed: user_id=%s result_count=%s", user_id, len(results))
     return BM25SearchResponse(
         user_id=user_id,
         query=query,
@@ -145,6 +164,7 @@ def search_hybrid_chunks(
     """
     user_id = str(current_user.id)
     query = _validate_query(request.query)
+    logger.info("Hybrid search requested: user_id=%s query_length=%s", user_id, len(query))
 
     try:
         retrieval_settings = validate_retrieval_settings(
@@ -167,11 +187,13 @@ def search_hybrid_chunks(
             bm25_weight=retrieval_settings.bm25_weight,
         )
     except ValueError as exc:
+        logger.warning("Hybrid search rejected: user_id=%s error=%s", user_id, exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
 
+    logger.info("Hybrid search completed: user_id=%s result_count=%s", user_id, len(results))
     return HybridSearchResponse(
         user_id=user_id,
         query=query,
@@ -197,6 +219,7 @@ def search_reranked_chunks(
     """
     user_id = str(current_user.id)
     query = _validate_query(request.query)
+    logger.info("Rerank search requested: user_id=%s query_length=%s", user_id, len(query))
 
     try:
         retrieval_settings = validate_retrieval_settings(
@@ -221,11 +244,13 @@ def search_reranked_chunks(
             bm25_weight=retrieval_settings.bm25_weight,
         )
     except ValueError as exc:
+        logger.warning("Rerank search rejected: user_id=%s error=%s", user_id, exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
 
+    logger.info("Rerank search completed: user_id=%s result_count=%s", user_id, len(results))
     return RerankSearchResponse(
         user_id=user_id,
         query=query,
@@ -244,6 +269,7 @@ def diagnose_retrieval_endpoint(
     """Run retrieval diagnostics for an authenticated user query."""
     user_id = str(current_user.id)
     query = _validate_query(request.query)
+    logger.info("Retrieval diagnostics requested: user_id=%s query_length=%s", user_id, len(query))
     try:
         retrieval_settings = validate_retrieval_settings(
             RetrievalSettings(
@@ -267,9 +293,18 @@ def diagnose_retrieval_endpoint(
             bm25_weight=retrieval_settings.bm25_weight,
         )
     except ValueError as exc:
+        logger.warning("Retrieval diagnostics rejected: user_id=%s error=%s", user_id, exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
 
+    logger.info(
+        "Retrieval diagnostics endpoint completed: user_id=%s vector=%s bm25=%s hybrid=%s reranked=%s",
+        user_id,
+        diagnostics["summary"]["vector_count"],
+        diagnostics["summary"]["bm25_count"],
+        diagnostics["summary"]["hybrid_count"],
+        diagnostics["summary"]["reranked_count"],
+    )
     return RetrievalDiagnosticsResponse.model_validate(diagnostics)

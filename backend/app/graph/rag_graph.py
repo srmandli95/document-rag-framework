@@ -16,6 +16,10 @@ from app.retrieval.retrieval_settings import (
     RetrievalSettings,
     validate_retrieval_settings,
 )
+from app.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 def build_rag_graph():
@@ -56,6 +60,13 @@ def run_rag_workflow(
     min_reranker_score: float | None = None,
 ) -> dict[str, Any]:
     """Run the RAG graph for one user question and return the response."""
+    logger.info(
+        "RAG workflow started: user_id=%s question_length=%s top_k=%s hybrid_top_k=%s",
+        user_id,
+        len(question or ""),
+        top_k,
+        hybrid_top_k,
+    )
     retrieval_settings = validate_retrieval_settings(
         RetrievalSettings(
             top_k=top_k,
@@ -101,4 +112,12 @@ def run_rag_workflow(
 
     final_state = graph.invoke(initial_state)
 
-    return final_state["final_response"]
+    final_response = final_state["final_response"]
+    logger.info(
+        "RAG workflow completed: user_id=%s status=%s evidence_chunks=%s validation=%s",
+        user_id,
+        final_response.get("status"),
+        final_response.get("evidence_chunk_count"),
+        final_response.get("validation_status"),
+    )
+    return final_response

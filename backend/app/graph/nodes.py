@@ -14,6 +14,10 @@ from app.generation.prompt_builder import (
 )
 from app.graph.state import RAGState
 from app.reranking.reranking_service import rerank_hybrid_results
+from app.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 def _extract_llm_text(response: Any) -> str:
@@ -42,6 +46,7 @@ def _extract_llm_text(response: Any) -> str:
 
 def load_user_context_node(state: RAGState) -> RAGState:
     """Attach basic user context to the RAG graph state."""
+    logger.debug("RAG node load_user_context: user_id=%s", state.get("user_id"))
     state["user_context"] = {
         "user_id": state.get("user_id"),
     }
@@ -54,6 +59,11 @@ def rewrite_query_node(state: RAGState) -> RAGState:
     original_question = state.get("question") or ""
 
     try:
+        logger.debug(
+            "RAG node rewrite_query started: user_id=%s question_length=%s",
+            state.get("user_id"),
+            len(original_question),
+        )
         prompt = build_query_rewrite_prompt(original_question)
         llm_client = get_llm_client()
         response = llm_client.generate(prompt)
@@ -63,10 +73,20 @@ def rewrite_query_node(state: RAGState) -> RAGState:
             rewritten_question = original_question
 
         state["rewritten_question"] = rewritten_question
+        logger.debug(
+            "RAG node rewrite_query completed: user_id=%s rewritten_length=%s",
+            state.get("user_id"),
+            len(rewritten_question),
+        )
 
     except Exception as exc:
         state["rewritten_question"] = original_question
         state["error"] = f"Query rewrite failed and fell back to original question: {exc}"
+        logger.warning(
+            "RAG node rewrite_query failed; using original question: user_id=%s error=%s",
+            state.get("user_id"),
+            exc,
+        )
 
     return state
 
@@ -77,6 +97,11 @@ def retrieve_and_rerank_node(state: RAGState) -> RAGState:
     user_id = state["user_id"]
 
     retrieval_query = state.get("rewritten_question") or state["question"]
+    logger.debug(
+        "RAG node retrieve_and_rerank started: user_id=%s query_length=%s",
+        user_id,
+        len(retrieval_query or ""),
+    )
 
     top_k = state.get("top_k", 5)
     hybrid_top_k = state.get("hybrid_top_k", 20)
@@ -99,6 +124,12 @@ def retrieve_and_rerank_node(state: RAGState) -> RAGState:
     )
 
     state["evidence_chunks"] = evidence_chunks[:top_k]
+    logger.info(
+        "RAG node retrieve_and_rerank completed: user_id=%s retrieved=%s selected=%s",
+        user_id,
+        len(evidence_chunks),
+        len(state["evidence_chunks"]),
+    )
 
     return state
 
@@ -116,6 +147,13 @@ def check_evidence_sufficiency_node(state: RAGState) -> RAGState:
 
     evidence_sufficient = bool(result["evidence_sufficient"])
     reason = str(result["reason"])
+    logger.info(
+        "RAG node evidence sufficiency checked: user_id=%s sufficient=%s evidence_chunks=%s reason=%s",
+        state.get("user_id"),
+        evidence_sufficient,
+        len(evidence_chunks),
+        reason,
+    )
 
     state["evidence_sufficient"] = evidence_sufficient
     state["evidence_sufficiency_reason"] = reason
@@ -137,6 +175,7 @@ def generate_answer_node(state: RAGState) -> RAGState:
     """Generate or refuse an answer from the current graph state."""
     if state.get("status") == "refused" or state.get("evidence_sufficient") is False:
         refusal_message = state.get("generated_answer") or get_refusal_message()
+        logger.info("RAG node generate_answer skipped with refusal: user_id=%s", state.get("user_id"))
 
         state["generated_answer"] = refusal_message
         state["final_answer"] = refusal_message
@@ -149,6 +188,12 @@ def generate_answer_node(state: RAGState) -> RAGState:
     evidence_chunks = state.get("evidence_chunks", [])
 
     citations = build_citations_from_evidence(evidence_chunks)
+    logger.debug(
+        "RAG node generate_answer started: user_id=%s evidence_chunks=%s citations=%s",
+        state.get("user_id"),
+        len(evidence_chunks),
+        len(citations),
+    )
     prompt = build_answer_prompt(
         question=question,
         evidence_chunks=evidence_chunks,
@@ -163,6 +208,12 @@ def generate_answer_node(state: RAGState) -> RAGState:
     state["final_answer"] = generated_answer
     state["citations"] = citations
     state["status"] = "answered"
+    logger.info(
+        "RAG node generate_answer completed: user_id=%s answer_length=%s citations=%s",
+        state.get("user_id"),
+        len(generated_answer),
+        len(citations),
+    )
 
     return state
 
@@ -183,9 +234,20 @@ def validate_citations_node(state: RAGState) -> RAGState:
 
     state["validation_status"] = validation_result["validation_status"]
     state["validation_reason"] = validation_result["validation_reason"]
+    logger.info(
+        "RAG node validate_citations completed: user_id=%s validation=%s reason=%s",
+        state.get("user_id"),
+        state["validation_status"],
+        state["validation_reason"],
+    )
 
     if validation_result["validation_status"] != "supported":
         refusal_message = get_refusal_message()
+        logger.warning(
+            "RAG answer refused after citation validation: user_id=%s reason=%s",
+            state.get("user_id"),
+            state["validation_reason"],
+        )
 
         state["generated_answer"] = refusal_message
         state["final_answer"] = refusal_message
@@ -220,5 +282,10 @@ def final_response_node(state: RAGState) -> RAGState:
 
     state["final_answer"] = final_answer
     state["final_response"] = final_response
+    logger.debug(
+        "RAG node final_response completed: user_id=%s status=%s",
+        state.get("user_id"),
+        final_response["status"],
+    )
 
     return state

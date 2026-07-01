@@ -37,9 +37,11 @@ from app.services.document_processing_job_service import (
     get_latest_processing_job_for_document,
 )
 from app.services.local_storage_service import LocalStorageService
+from app.utils.logger import get_logger
 
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
+logger = get_logger(__name__)
 
 
 ALLOWED_CONTENT_TYPES = {
@@ -108,12 +110,14 @@ def _validate_file(file: UploadFile) -> None:
     file_extension = Path(file.filename).suffix.lower()
 
     if file_extension not in ALLOWED_EXTENSIONS:
+        logger.warning("Document upload rejected: unsupported extension %s", file_extension)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unsupported file extension: {file_extension}",
         )
 
     if file.content_type not in ALLOWED_CONTENT_TYPES:
+        logger.warning("Document upload rejected: unsupported content type %s", file.content_type)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unsupported content type: {file.content_type}",
@@ -128,6 +132,11 @@ async def _get_file_size_bytes(file: UploadFile) -> int:
     max_upload_size_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
     if file_size_bytes > max_upload_size_bytes:
+        logger.warning(
+            "Document upload rejected: file size %s exceeded limit %s",
+            file_size_bytes,
+            max_upload_size_bytes,
+        )
         raise HTTPException(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail=f"File size exceeds {settings.MAX_UPLOAD_SIZE_MB} MB limit",
@@ -164,12 +173,39 @@ def _display_status(document_status: str, job=None) -> str:
 
 def _process_document_in_background(document_id: str, user_id: str, job_id: str) -> None:
     """Process an uploaded document in a fresh database session."""
+    logger.info(
+        "Background document processing started: document_id=%s user_id=%s job_id=%s",
+        document_id,
+        user_id,
+        job_id,
+    )
     db = SessionLocal()
     try:
         document = get_document_by_id(db=db, document_id=document_id, user_id=user_id)
         job = get_processing_job_by_id(db, job_id, user_id)
         if document is not None and job is not None:
-            process_document(db=db, document=document, force=False, job=job)
+            result = process_document(db=db, document=document, force=False, job=job)
+            logger.info(
+                "Background document processing finished: document_id=%s job_id=%s status=%s",
+                document_id,
+                job_id,
+                result.status,
+            )
+        else:
+            logger.warning(
+                "Background document processing skipped: document_id=%s job_id=%s document_found=%s job_found=%s",
+                document_id,
+                job_id,
+                document is not None,
+                job is not None,
+            )
+    except Exception:
+        logger.exception(
+            "Background document processing failed unexpectedly: document_id=%s job_id=%s",
+            document_id,
+            job_id,
+        )
+        raise
     finally:
         db.close()
 
@@ -217,6 +253,13 @@ async def upload_document(
     _validate_file(file)
 
     file_size_bytes = await _get_file_size_bytes(file)
+    logger.info(
+        "Document upload accepted: user_id=%s file_name=%s content_type=%s size_bytes=%s",
+        authenticated_user_id,
+        file.filename,
+        file.content_type,
+        file_size_bytes,
+    )
 
     storage_service = LocalStorageService()
 
@@ -243,6 +286,11 @@ async def upload_document(
             status="uploaded",
         )
     except Exception:
+        logger.exception(
+            "Document record creation failed after file save: user_id=%s storage_path=%s",
+            authenticated_user_id,
+            storage_metadata["storage_path"],
+        )
         storage_service.delete_file(storage_metadata["storage_path"])
         raise
 
@@ -253,6 +301,11 @@ async def upload_document(
             user_id=authenticated_user_id,
         )
     except Exception:
+        logger.exception(
+            "Document processing job creation failed: document_id=%s user_id=%s",
+            document.id,
+            authenticated_user_id,
+        )
         delete_document_completely(
             db=db,
             document_id=str(document.id),
@@ -264,6 +317,12 @@ async def upload_document(
         str(document.id),
         authenticated_user_id,
         str(job.id),
+    )
+    logger.info(
+        "Document upload completed and processing queued: document_id=%s user_id=%s job_id=%s",
+        document.id,
+        authenticated_user_id,
+        job.id,
     )
 
     metadata = _to_document_metadata(document, job)
@@ -296,8 +355,17 @@ def list_documents(
     clean_status = status_filter.strip() if status_filter else None
     clean_category = category.strip() if category else None
     clean_search = search.strip() if search else None
+    logger.debug(
+        "Listing documents: user_id=%s status=%s category=%s search_present=%s ready_only=%s",
+        authenticated_user_id,
+        clean_status,
+        clean_category,
+        bool(clean_search),
+        ready_only,
+    )
 
     if clean_status and clean_status not in SUPPORTED_DOCUMENT_STATUSES:
+        logger.warning("Document list rejected: unsupported status %s", clean_status)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
@@ -307,6 +375,7 @@ def list_documents(
         )
 
     if clean_category and clean_category not in SUPPORTED_DOCUMENT_CATEGORIES:
+        logger.warning("Document list rejected: unsupported category %s", clean_category)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
@@ -359,11 +428,21 @@ def delete_document(
     )
 
     if document is None:
+        logger.warning(
+            "Document delete requested for missing document: document_id=%s user_id=%s",
+            document_id,
+            authenticated_user_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found",
         )
 
+    logger.info(
+        "Document deleted: document_id=%s user_id=%s",
+        document.id,
+        document.user_id,
+    )
     return DocumentDeleteResponse(
         document_id=document.id,
         user_id=document.user_id,

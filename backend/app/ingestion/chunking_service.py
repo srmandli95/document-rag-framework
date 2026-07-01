@@ -10,6 +10,10 @@ from app.services.document_chunk_service import (
     delete_chunks_by_document,
 )
 from app.services.document_service import update_document_status
+from app.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 def chunk_and_store_document_text(
@@ -22,6 +26,12 @@ def chunk_and_store_document_text(
     """
 
     if document.status != "extracted":
+        logger.warning(
+            "Document chunking rejected: document_id=%s user_id=%s status=%s",
+            document.id,
+            document.user_id,
+            document.status,
+        )
         raise ValueError("Document must be in extracted status before chunking")
 
     extracted_text_path = (
@@ -32,11 +42,21 @@ def chunk_and_store_document_text(
     )
 
     if not extracted_text_path.exists():
+        logger.error(
+            "Document chunking failed because extracted text is missing: document_id=%s path=%s",
+            document.id,
+            extracted_text_path,
+        )
         raise FileNotFoundError(
             f"Extracted text file not found: {extracted_text_path}"
         )
 
     try:
+        logger.info(
+            "Document chunking started: document_id=%s user_id=%s",
+            document.id,
+            document.user_id,
+        )
         update_document_status(
             db=db,
             document_id=document.id,
@@ -66,6 +86,12 @@ def chunk_and_store_document_text(
             status="chunked",
         )
 
+        logger.info(
+            "Document chunking completed: document_id=%s user_id=%s chunks=%s",
+            document.id,
+            document.user_id,
+            len(chunks),
+        )
         return {
             "document_id": document.id,
             "user_id": document.user_id,
@@ -75,6 +101,11 @@ def chunk_and_store_document_text(
         }
 
     except Exception:
+        logger.exception(
+            "Document chunking failed: document_id=%s user_id=%s",
+            document.id,
+            document.user_id,
+        )
         update_document_status(
             db=db,
             document_id=document.id,
