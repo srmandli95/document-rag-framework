@@ -9,6 +9,10 @@ from app.retrieval.retrieval_settings import (
     validate_retrieval_settings,
 )
 from app.retrieval.vector_retriever import vector_search
+from app.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 _SLIM_RESULT_FIELDS = (
@@ -150,6 +154,15 @@ def diagnose_retrieval(
     safe_bm25_top_k = retrieval_settings.bm25_top_k
     safe_hybrid_top_k = retrieval_settings.hybrid_top_k
     safe_rerank_top_k = retrieval_settings.rerank_top_k
+    logger.info(
+        "Retrieval diagnostics started: user_id=%s query_length=%s vector_top_k=%s bm25_top_k=%s hybrid_top_k=%s rerank_top_k=%s",
+        clean_user_id,
+        len(clean_query),
+        safe_vector_top_k,
+        safe_bm25_top_k,
+        safe_hybrid_top_k,
+        safe_rerank_top_k,
+    )
 
     vector_results = vector_search(
         db=db,
@@ -185,6 +198,14 @@ def diagnose_retrieval(
         bm25_weight=retrieval_settings.bm25_weight,
     )
 
+    logger.info(
+        "Retrieval diagnostics completed: user_id=%s vector=%s bm25=%s hybrid=%s reranked=%s",
+        clean_user_id,
+        len(vector_results),
+        len(bm25_results),
+        len(hybrid_results),
+        len(reranked_results),
+    )
     return {
         "user_id": clean_user_id,
         "query": clean_query,
