@@ -82,14 +82,10 @@ async def ask_question(
     current_user: User = Depends(get_current_user),
 ) -> AskResponse:
     """
-    Graph-backed answer-generation endpoint with async chat persistence.
+    Generate an answer for the authenticated user using the RAG workflow.
 
-    Day 20 authorization behavior:
-    - Requires JWT.
-    - Ignores request.user_id if it is still sent by older clients.
-    - Uses current_user.id from the JWT as the real user_id.
-    - Creates or reuses a chat session for the authenticated user only.
-    - Saves chat messages under the authenticated user only.
+    The JWT identity is used for authorization, chat-session ownership, and
+    message persistence. Any legacy `user_id` supplied by the client is ignored.
     """
     if not request.question or not request.question.strip():
         logger.warning("Chat ask rejected: empty question")
@@ -216,11 +212,10 @@ async def list_chat_sessions(
     current_user: User = Depends(get_current_user),
 ) -> ChatSessionListResponse:
     """
-    List chat sessions for the authenticated user only.
+    List chat sessions that belong to the authenticated user.
 
-    Day 20 authorization behavior:
-    - Requires JWT.
-    - Does not accept or trust query user_id.
+    The endpoint uses the JWT identity to scope the result set and does not
+    trust any client-supplied user identifier.
     """
     user_id = str(current_user.id)
     logger.debug("Listing chat sessions: user_id=%s", user_id)
@@ -286,12 +281,10 @@ async def get_chat_session_detail(
     current_user: User = Depends(get_current_user),
 ) -> ChatSessionDetailResponse:
     """
-    Get a chat session only if it belongs to the authenticated user.
+    Return a chat session only when it belongs to the authenticated user.
 
-    Day 20 authorization behavior:
-    - Requires JWT.
-    - Does not accept or trust query user_id.
-    - Returns 404 if the session belongs to another user.
+    The endpoint uses the JWT identity for authorization and returns 404 when
+    the requested session is owned by a different user.
     """
     user_id = str(current_user.id)
     logger.debug(
