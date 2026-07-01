@@ -7,6 +7,10 @@ from app.ingestion.cleaner import clean_text
 from app.ingestion.loaders import extract_text_from_file
 from app.models.document import Document
 from app.services.document_service import update_document_status
+from app.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 def extract_and_store_document_text(
@@ -15,6 +19,12 @@ def extract_and_store_document_text(
 ) -> dict:
     """Extract text from a document and store it on the document record."""
     try:
+        logger.info(
+            "Document text extraction started: document_id=%s user_id=%s content_type=%s",
+            document.id,
+            document.user_id,
+            document.content_type,
+        )
         update_document_status(
             db=db,
             document_id=document.id,
@@ -54,6 +64,12 @@ def extract_and_store_document_text(
             status="extracted",
         )
 
+        logger.info(
+            "Document text extraction completed: document_id=%s user_id=%s characters=%s",
+            document.id,
+            document.user_id,
+            len(cleaned_text),
+        )
         return {
             "document_id": document.id,
             "user_id": document.user_id,
@@ -64,6 +80,11 @@ def extract_and_store_document_text(
         }
 
     except Exception as exc:
+        logger.exception(
+            "Document text extraction failed: document_id=%s user_id=%s",
+            document.id,
+            document.user_id,
+        )
         update_document_status(
             db=db,
             document_id=document.id,
