@@ -15,6 +15,7 @@ from app.retrieval.retrieval_settings import (
 from app.schemas.chat_schema import (
     AskRequest,
     AskResponse,
+    ChatMessageEvidenceResponse,
     ChatMessageResponse,
     ChatSessionDeleteResponse,
     ChatSessionDetailResponse,
@@ -27,6 +28,7 @@ from app.utils.logger import get_logger
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 logger = get_logger(__name__)
+CHAT_HISTORY_TURN_LIMIT = 6
 
 
 def _run_rag_workflow_with_session(**kwargs: Any) -> dict[str, Any]:
@@ -73,6 +75,20 @@ def _to_chat_message_response(message: Any) -> ChatMessageResponse:
         evidence_sufficiency_reason=message.evidence_sufficiency_reason,
         created_at=message.created_at,
     )
+
+
+def _to_rewrite_history(messages: list[Any], limit: int = CHAT_HISTORY_TURN_LIMIT) -> list[dict[str, str]]:
+    """Convert recent persisted messages into bounded query-rewrite context."""
+    recent_messages = messages[-limit:] if limit > 0 else []
+
+    return [
+        {
+            "question": message.question,
+            "answer": message.answer or "",
+        }
+        for message in recent_messages
+        if getattr(message, "question", None)
+    ]
 
 
 @router.post("/ask", response_model=AskResponse)
@@ -146,11 +162,28 @@ async def ask_question(
             detail=str(exc),
         ) from exc
 
+    chat_history: list[dict[str, str]] = []
+    try:
+        previous_messages = await chat_service.get_chat_messages_by_session(
+            db=async_db,
+            session_id=chat_session.id,
+            user_id=user_id,
+        )
+        chat_history = _to_rewrite_history(previous_messages)
+    except Exception as exc:
+        logger.warning(
+            "Chat history unavailable for query rewrite; continuing without it: user_id=%s session_id=%s error=%s",
+            user_id,
+            chat_session.id,
+            exc,
+        )
+
     try:
         result = await run_in_threadpool(
             _run_rag_workflow_with_session,
             user_id=str(current_user.id),
             question=question,
+            chat_history=chat_history,
             top_k=retrieval_settings.top_k,
             hybrid_top_k=retrieval_settings.hybrid_top_k,
             vector_top_k=retrieval_settings.vector_top_k,
@@ -199,10 +232,47 @@ async def ask_question(
         status=result.get("status"),
         validation_status=result.get("validation_status"),
         validation_reason=result.get("validation_reason"),
+        grounding_status=result.get("grounding_status"),
+        grounding_reason=result.get("grounding_reason"),
+        unsupported_claims=result.get("unsupported_claims") or [],
         evidence_sufficient=result.get("evidence_sufficient"),
         evidence_sufficiency_reason=result.get("evidence_sufficiency_reason"),
         session_id=chat_session.id,
         message_id=chat_message.id,
+    )
+
+
+@router.get("/messages/{message_id}/evidence", response_model=ChatMessageEvidenceResponse)
+async def get_chat_message_evidence(
+    message_id: str,
+    async_db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
+) -> ChatMessageEvidenceResponse:
+    """Return stored retrieved evidence for an owned chat message."""
+    user_id = str(current_user.id)
+    message = await chat_service.get_chat_message_by_id(
+        db=async_db,
+        message_id=message_id,
+        user_id=user_id,
+    )
+
+    if message is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chat message not found",
+        )
+
+    retrieved_chunks = message.retrieved_chunks or []
+    return ChatMessageEvidenceResponse(
+        message_id=message.id,
+        session_id=message.session_id,
+        user_id=message.user_id,
+        question=message.question,
+        answer=message.answer,
+        citations=message.citations or [],
+        retrieved_chunks=retrieved_chunks,
+        evidence_chunk_count=message.evidence_chunk_count or len(retrieved_chunks),
+        created_at=message.created_at,
     )
 
 
