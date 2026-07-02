@@ -47,7 +47,7 @@ def test_generate_answer_from_evidence_returns_refusal_when_no_evidence(monkeypa
         }
 
     monkeypatch.setattr(
-        "app.graph.rag_graph.run_rag_workflow",
+        "app.generation.answer_generator.run_rag_workflow",
         fake_run_rag_workflow,
     )
 
@@ -106,7 +106,7 @@ def test_generate_answer_from_evidence_returns_answered_response(monkeypatch):
         }
 
     monkeypatch.setattr(
-        "app.graph.rag_graph.run_rag_workflow",
+        "app.generation.answer_generator.run_rag_workflow",
         fake_run_rag_workflow,
     )
 
@@ -172,7 +172,7 @@ def test_generate_answer_from_evidence_passes_parameters_to_graph(monkeypatch):
         }
 
     monkeypatch.setattr(
-        "app.graph.rag_graph.run_rag_workflow",
+        "app.generation.answer_generator.run_rag_workflow",
         fake_run_rag_workflow,
     )
 
@@ -232,7 +232,7 @@ def test_generate_answer_from_evidence_does_not_call_openai_or_reranker_directly
         }
 
     monkeypatch.setattr(
-        "app.graph.rag_graph.run_rag_workflow",
+        "app.generation.answer_generator.run_rag_workflow",
         fake_run_rag_workflow,
     )
 
