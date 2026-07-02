@@ -106,6 +106,9 @@ def chunk_and_store_document_text(
             document.id,
             document.user_id,
         )
+        rollback = getattr(db, "rollback", None)
+        if rollback is not None:
+            rollback()
         update_document_status(
             db=db,
             document_id=document.id,
