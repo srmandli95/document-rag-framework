@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.db.database import get_db
-from app.ingestion.chunker import chunk_text
+from app.ingestion.chunker import chunk_text, parse_document_structure
 from app.ingestion.chunking_service import chunk_and_store_document_text
 from app.main import app
 from app.api import document_routes
@@ -43,6 +43,10 @@ def test_chunk_text_returns_one_chunk_for_short_text():
     assert chunks[0]["chunk_index"] == 0
     assert chunks[0]["token_count"] == 7
     assert chunks[0]["page_number"] is None
+    assert chunks[0]["summary"]
+    assert chunks[0]["keywords"]
+    assert chunks[0]["hypothetical_questions"]
+    assert chunks[0]["search_text"].startswith(chunks[0]["chunk_text"])
 
 
 def test_chunk_text_returns_multiple_chunks_for_long_text():
@@ -87,6 +91,55 @@ def test_chunk_text_empty_text_returns_empty_list():
     chunks = chunk_text("   ")
 
     assert chunks == []
+
+
+def test_parse_document_structure_detects_headings_tables_and_pages():
+    text = """--- Page 2 ---
+# Coverage Rules
+
+Urgent care is covered after a copay.
+
+Plan | Copay | Limit
+Urgent Care | $40 | 5 visits
+Emergency | $250 | Unlimited
+"""
+
+    blocks = parse_document_structure(text)
+
+    assert [block["type"] for block in blocks] == ["heading", "paragraph", "table"]
+    assert blocks[0]["section_title"] == "Coverage Rules"
+    assert blocks[1]["page_number"] == 2
+    assert "Urgent Care | $40 | 5 visits" in blocks[2]["text"]
+
+
+def test_chunk_text_preserves_table_and_attaches_enriched_metadata():
+    text = """Coverage Rules
+
+Urgent care is covered after a $40 copay.
+
+Service | Copay | Notes
+Urgent care | $40 | In network
+Emergency room | $250 | Waived if admitted
+
+Claims
+
+Claims must be submitted within 90 days.
+"""
+
+    chunks = chunk_text(text=text, chunk_size=80, chunk_overlap=10)
+
+    coverage_chunk = chunks[0]
+    claims_chunk = chunks[1]
+
+    assert coverage_chunk["section_title"] == "Coverage Rules"
+    assert "Service | Copay | Notes" in coverage_chunk["chunk_text"]
+    assert "table" in coverage_chunk["structure_types"]
+    assert coverage_chunk["summary"].startswith("Coverage Rules")
+    assert "Questions:" in coverage_chunk["search_text"]
+    assert coverage_chunk["hypothetical_questions"][0] == (
+        "What does the document say about Coverage Rules?"
+    )
+    assert claims_chunk["section_title"] == "Claims"
 
 
 def test_chunking_endpoint_success_without_real_db_calls(monkeypatch):
@@ -258,6 +311,10 @@ def test_chunking_service_reads_text_and_writes_chunks(monkeypatch, tmp_path):
     assert "processing" in status_updates
     assert "chunked" in status_updates
     assert len(created_chunks) > 0
+    assert created_chunks[0]["summary"]
+    assert created_chunks[0]["keywords"]
+    assert created_chunks[0]["hypothetical_questions"]
+    assert created_chunks[0]["search_text"].startswith(created_chunks[0]["chunk_text"])
 
 
 def test_failed_chunking_marks_document_status_failed(monkeypatch, tmp_path):
