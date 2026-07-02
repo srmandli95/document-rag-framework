@@ -17,12 +17,15 @@ from sqlalchemy.orm import Session
 from app.auth.dependencies import get_current_user
 from app.config.settings import settings
 from app.db.database import SessionLocal, get_db
+from app.ingestion.chunking_service import chunk_and_store_document_text
 from app.ingestion.document_processing_service import process_document
 from app.models.user import User
 from app.schemas.document_schema import (
+    DocumentChunkingResponse,
     DocumentDeleteResponse,
     DocumentListResponse,
     DocumentMetadata,
+    DocumentProcessingResponse,
     DocumentUploadResponse,
 )
 from app.services.document_service import (
@@ -406,6 +409,63 @@ def list_documents(
         documents=document_metadata,
         count=len(document_metadata),
     )
+
+
+@router.post("/{document_id}/chunk", response_model=DocumentChunkingResponse)
+def chunk_document(
+    document_id: str,
+    user_id: str | None = Query(default=None),  # Legacy compatibility field; the JWT identity is authoritative.
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DocumentChunkingResponse:
+    """Run structure-aware chunking for an extracted document owned by the user."""
+    authenticated_user_id = str(current_user.id)
+    document = get_document_by_id(
+        db=db,
+        document_id=document_id,
+        user_id=authenticated_user_id,
+    )
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    if document.status != "extracted":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Document must be extracted before chunking",
+        )
+
+    result = chunk_and_store_document_text(db=db, document=document)
+    return DocumentChunkingResponse(**result)
+
+
+@router.post("/{document_id}/process", response_model=DocumentProcessingResponse)
+def process_document_endpoint(
+    document_id: str,
+    user_id: str | None = Query(default=None),  # Legacy compatibility field; the JWT identity is authoritative.
+    force: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DocumentProcessingResponse:
+    """Synchronously run the full document preparation pipeline."""
+    authenticated_user_id = str(current_user.id)
+    document = get_document_by_id(
+        db=db,
+        document_id=document_id,
+        user_id=authenticated_user_id,
+    )
+
+    if document is None or getattr(document, "status", None) == "deleted":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    result = process_document(db=db, document=document, force=force)
+    return DocumentProcessingResponse.model_validate(result)
 
 
 @router.delete("/{document_id}", response_model=DocumentDeleteResponse)
