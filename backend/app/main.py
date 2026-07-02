@@ -7,12 +7,14 @@ from app.api.health_routes import router as health_router
 from app.api.document_routes import router as document_router
 from app.api.chat_routes import router as chat_router
 from app.api.auth_routes import router as auth_router
+from app.api.retrieval_routes import router as retrieval_router
 from app.models.chat_session import ChatSession
 from app.models.chat_message import ChatMessage
 from app.models.document_processing_job import DocumentProcessingJob
 from app.models.user import User
 from app.config.settings import settings
 from app.db.database import Base, engine
+from app.db.schema_migrations import ensure_document_chunk_metadata_columns
 from app.models import Document, DocumentChunk
 
 
@@ -20,6 +22,7 @@ from app.models import Document, DocumentChunk
 async def lifespan(_: FastAPI):
     """Create database tables during application startup."""
     Base.metadata.create_all(bind=engine)
+    ensure_document_chunk_metadata_columns(engine)
     yield
 
 
@@ -46,6 +49,7 @@ app.include_router(health_router)
 app.include_router(document_router)
 app.include_router(chat_router)
 app.include_router(auth_router)
+app.include_router(retrieval_router)
 
 
 @app.get("/")
