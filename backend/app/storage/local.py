@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from app.config.settings import settings
-from app.services.storage_service import StorageService
+from app.storage.base import StorageService
 from app.utils.logger import get_logger
 
 

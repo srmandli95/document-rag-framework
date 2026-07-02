@@ -17,7 +17,7 @@ from app.auth.oauth_google import (
 from app.db.database import get_db
 from app.models.user import User
 from app.schemas.auth_schema import AuthUserResponse
-from app.services.user_service import get_or_create_oauth_user
+from app.repositories.user_repository import get_or_create_oauth_user
 from app.config.settings import settings
 from app.utils.logger import get_logger
 

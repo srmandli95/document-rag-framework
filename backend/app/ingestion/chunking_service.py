@@ -5,11 +5,11 @@ from sqlalchemy.orm import Session
 from app.config.settings import settings
 from app.ingestion.chunker import chunk_text
 from app.models.document import Document
-from app.services.document_chunk_service import (
+from app.repositories.document_chunk_repository import (
     create_document_chunks,
     delete_chunks_by_document,
 )
-from app.services.document_service import update_document_status
+from app.repositories.document_repository import update_document_status
 from app.utils.logger import get_logger
 
 

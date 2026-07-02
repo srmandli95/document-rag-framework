@@ -6,7 +6,7 @@ from app.config.settings import settings
 from app.ingestion.cleaner import clean_text
 from app.ingestion.loaders import extract_text_from_file
 from app.models.document import Document
-from app.services.document_service import update_document_status
+from app.repositories.document_repository import update_document_status
 from app.utils.logger import get_logger
 
 

@@ -5,11 +5,11 @@ from sqlalchemy.orm import Session
 from app.config.settings import settings
 from app.embeddings.embedding_service import get_embedding_service
 from app.models.document import Document
-from app.services.document_chunk_service import (
+from app.repositories.document_chunk_repository import (
     get_created_chunks_by_document,
     update_chunks_with_embeddings,
 )
-from app.services.document_service import update_document_status
+from app.repositories.document_repository import update_document_status
 from app.utils.logger import get_logger
 
 

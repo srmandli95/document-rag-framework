@@ -9,7 +9,7 @@ from app.api import chat_routes, document_routes
 from app.auth.dependencies import get_current_user
 from app.db.database import get_async_db, get_db
 from app.main import app
-from app.services import chat_service, document_chunk_service
+from app.repositories import chat_repository as chat_service, document_chunk_repository as document_chunk_service
 
 
 NOW = datetime.utcnow()
