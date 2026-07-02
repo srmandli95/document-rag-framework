@@ -11,7 +11,7 @@ from app.db.database import get_async_db, get_db
 from app.main import app
 from app.models.chat_message import ChatMessage
 from app.models.chat_session import ChatSession
-from app.services import chat_service
+from app.repositories import chat_repository as chat_service
 from conftest import override_get_current_user
 
 

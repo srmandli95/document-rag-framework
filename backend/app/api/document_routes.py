@@ -37,17 +37,17 @@ from app.schemas.document_schema import (
     DocumentProcessingResponse,
     DocumentUploadResponse,
 )
-from app.services.document_chunk_service import (
+from app.repositories.document_chunk_repository import (
     get_chunk_by_id,
     get_chunks_by_document_for_user,
 )
-from app.services.document_service import (
+from app.repositories.document_repository import (
     create_document_record,
     delete_document_completely,
     get_document_by_id,
     get_documents_by_user,
 )
-from app.services.document_processing_job_service import (
+from app.repositories.document_processing_job_repository import (
     create_processing_job,
     get_processing_job_by_id,
     get_processing_jobs_by_document,

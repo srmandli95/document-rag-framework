@@ -11,7 +11,7 @@ from app.schemas.document_schema import (
     DocumentProcessingResponse,
     DocumentProcessingStep,
 )
-from app.services.document_processing_job_service import (
+from app.repositories.document_processing_job_repository import (
     create_processing_job,
     mark_job_completed,
     mark_job_failed,

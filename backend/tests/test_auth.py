@@ -13,7 +13,7 @@ from app.auth.jwt_handler import create_access_token, decode_access_token
 from app.config.settings import settings
 from app.db.database import get_db
 from app.models.user import User
-from app.services.user_service import get_or_create_oauth_user
+from app.repositories.user_repository import get_or_create_oauth_user
 
 
 @pytest.fixture()

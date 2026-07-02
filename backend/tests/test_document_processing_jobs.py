@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from app.api import document_routes
 from app.auth.dependencies import get_current_user
 from app.models.document_processing_job import DocumentProcessingJob
-from app.services.document_processing_job_service import (
+from app.repositories.document_processing_job_repository import (
     create_processing_job,
     get_latest_processing_job_for_document,
     get_processing_job_by_id,

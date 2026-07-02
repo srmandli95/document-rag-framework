@@ -9,7 +9,7 @@ from app.auth.dependencies import get_current_user
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
 from app.models.document_processing_job import DocumentProcessingJob
-from app.services.document_service import delete_document_completely
+from app.repositories.document_repository import delete_document_completely
 
 
 class UploadDB:
@@ -151,7 +151,7 @@ def test_complete_delete_removes_rows_jobs_vectors_and_artifacts(monkeypatch, tm
         artifact = root / "user-1" / "doc-1" / "artifact.txt"
         artifact.parent.mkdir(parents=True)
         artifact.write_text("generated")
-        monkeypatch.setattr(f"app.services.document_service.settings.{setting_name}", str(root))
+        monkeypatch.setattr(f"app.repositories.document_repository.settings.{setting_name}", str(root))
 
     deleted = delete_document_completely(db, document_id="doc-1", user_id="user-1")
 

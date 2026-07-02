@@ -23,7 +23,7 @@ from app.schemas.chat_schema import (
     ChatSessionListResponse,
     ChatSessionResponse,
 )
-from app.services import chat_service
+from app.repositories import chat_repository as chat_service
 from app.utils.logger import get_logger
 
 
