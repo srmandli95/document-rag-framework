@@ -17,10 +17,15 @@ def create_document_chunks(
             document_id=document_id,
             user_id=user_id,
             chunk_text=chunk["chunk_text"],
+            search_text=chunk.get("search_text") or chunk["chunk_text"],
             chunk_index=chunk["chunk_index"],
             token_count=chunk["token_count"],
             section_title=chunk.get("section_title"),
             page_number=chunk.get("page_number"),
+            summary=chunk.get("summary"),
+            keywords=chunk.get("keywords"),
+            hypothetical_questions=chunk.get("hypothetical_questions"),
+            structure_types=chunk.get("structure_types"),
             status="created",
         )
 

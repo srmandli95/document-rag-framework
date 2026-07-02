@@ -60,7 +60,10 @@ def embed_document_chunks(
 
         embedding_service = get_embedding_service()
 
-        chunk_texts = [chunk.chunk_text for chunk in chunks]
+        chunk_texts = [
+            getattr(chunk, "search_text", None) or chunk.chunk_text
+            for chunk in chunks
+        ]
         embeddings = embedding_service.embed_texts(chunk_texts)
 
         update_chunks_with_embeddings(

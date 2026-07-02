@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class DocumentMetadata(BaseModel):
@@ -75,6 +75,10 @@ class DocumentChunkMetadata(BaseModel):
     token_count: int
     section_title: str | None = None
     page_number: int | None = None
+    summary: str | None = None
+    keywords: list[str] = Field(default_factory=list)
+    hypothetical_questions: list[str] = Field(default_factory=list)
+    structure_types: list[str] = Field(default_factory=list)
     status: str
 
 
