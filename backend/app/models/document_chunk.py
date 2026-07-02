@@ -2,7 +2,7 @@ from datetime import datetime
 from uuid import uuid4
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -36,6 +36,11 @@ class DocumentChunk(Base):
         nullable=False,
     )
 
+    search_text: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
     chunk_index: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
@@ -48,6 +53,26 @@ class DocumentChunk(Base):
 
     section_title: Mapped[str | None] = mapped_column(
         String,
+        nullable=True,
+    )
+
+    summary: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    keywords: Mapped[list[str] | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+
+    hypothetical_questions: Mapped[list[str] | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+
+    structure_types: Mapped[list[str] | None] = mapped_column(
+        JSON,
         nullable=True,
     )
 
