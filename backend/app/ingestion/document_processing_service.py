@@ -260,6 +260,7 @@ def process_document(
             document.user_id,
             job.id,
         )
+        db.rollback()
         _mark_document_failed(db, document, error_message)
         failed_step_name = job.current_step or "process"
         steps.append(_step_result(failed_step_name, "failed", error_message))
