@@ -53,7 +53,7 @@ from app.repositories.document_processing_job_repository import (
     get_processing_jobs_by_document,
     get_latest_processing_job_for_document,
 )
-from app.services.local_storage_service import LocalStorageService
+from app.storage.local import LocalStorageService
 from app.utils.logger import get_logger
 
 
