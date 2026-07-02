@@ -83,10 +83,12 @@ def bm25_search(
     for row in rows:
         chunk = row[0]
 
-        if not chunk.chunk_text or not chunk.chunk_text.strip():
+        searchable_text = getattr(chunk, "search_text", None) or chunk.chunk_text
+
+        if not searchable_text or not searchable_text.strip():
             continue
 
-        tokens = tokenize_text(chunk.chunk_text)
+        tokens = tokenize_text(searchable_text)
 
         if not tokens:
             continue
@@ -122,6 +124,10 @@ def bm25_search(
                 "token_count": chunk.token_count,
                 "page_number": chunk.page_number,
                 "section_title": chunk.section_title,
+                "summary": getattr(chunk, "summary", None),
+                "keywords": getattr(chunk, "keywords", None) or [],
+                "hypothetical_questions": getattr(chunk, "hypothetical_questions", None) or [],
+                "structure_types": getattr(chunk, "structure_types", None) or [],
                 "document_name": document_name,
                 "category": category,
                 "bm25_score": float(score),
