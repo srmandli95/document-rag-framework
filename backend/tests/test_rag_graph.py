@@ -20,8 +20,11 @@ def test_build_rag_graph_compiles():
 def test_run_rag_workflow_returns_final_response(monkeypatch):
     rewrite_llm = FakeLLM("late payment DTE Energy consequences")
     answer_llm = FakeLLM("A late payment may result in a late payment charge based on the evidence.")
+    verifier_llm = FakeLLM(
+        '{"status": "supported", "reason": "The answer is supported by the evidence.", "unsupported_claims": []}'
+    )
 
-    llm_calls = [rewrite_llm, answer_llm]
+    llm_calls = [rewrite_llm, answer_llm, verifier_llm]
 
     def fake_get_llm_client():
         return llm_calls.pop(0)
@@ -81,6 +84,7 @@ def test_run_rag_workflow_returns_final_response(monkeypatch):
     assert response["question"] == "can you explain me the consequences for the late payment of my bill for DTE Energy?"
     assert response["rewritten_question"] == "late payment DTE Energy consequences"
     assert response["evidence_sufficient"] is True
+    assert response["grounding_status"] == "supported"
     assert response["status"] == "answered"
     assert response["validation_status"] == "supported"
     assert len(response["citations"]) == 1
