@@ -18,6 +18,10 @@ class VectorSearchResult(BaseModel):
     token_count: int | None = None
     page_number: int | None = None
     section_title: str | None = None
+    summary: str | None = None
+    keywords: list[str] = Field(default_factory=list)
+    hypothetical_questions: list[str] = Field(default_factory=list)
+    structure_types: list[str] = Field(default_factory=list)
     document_name: str | None = None
     category: str | None = None
     distance: float
@@ -49,6 +53,10 @@ class BM25SearchResult(BaseModel):
     token_count: int | None = None
     page_number: int | None = None
     section_title: str | None = None
+    summary: str | None = None
+    keywords: list[str] = Field(default_factory=list)
+    hypothetical_questions: list[str] = Field(default_factory=list)
+    structure_types: list[str] = Field(default_factory=list)
     document_name: str | None = None
     category: str | None = None
     bm25_score: float
@@ -83,6 +91,10 @@ class HybridSearchResult(BaseModel):
     token_count: int | None = None
     page_number: int | None = None
     section_title: str | None = None
+    summary: str | None = None
+    keywords: list[str] = Field(default_factory=list)
+    hypothetical_questions: list[str] = Field(default_factory=list)
+    structure_types: list[str] = Field(default_factory=list)
     document_name: str | None = None
     category: str | None = None
     vector_score: float
@@ -123,6 +135,10 @@ class RerankSearchResult(BaseModel):
     token_count: int | None = None
     page_number: int | None = None
     section_title: str | None = None
+    summary: str | None = None
+    keywords: list[str] = Field(default_factory=list)
+    hypothetical_questions: list[str] = Field(default_factory=list)
+    structure_types: list[str] = Field(default_factory=list)
     document_name: str | None = None
     category: str | None = None
 
