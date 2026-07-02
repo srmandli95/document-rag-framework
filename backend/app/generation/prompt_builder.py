@@ -18,11 +18,45 @@ def load_prompts() -> dict[str, str]:
     return prompts
 
 
-def build_query_rewrite_prompt(question: str) -> str:
+def build_chat_history_context(chat_history: list[dict[str, Any]], max_answer_chars: int = 500) -> str:
+    """Format prior chat messages for contextual query rewriting."""
+    if not chat_history:
+        return "No prior chat context."
+
+    history_lines: list[str] = []
+
+    for index, message in enumerate(chat_history, start=1):
+        question = str(message.get("question") or "").strip()
+        answer = str(message.get("answer") or "").strip()
+
+        if len(answer) > max_answer_chars:
+            answer = answer[:max_answer_chars].rstrip() + "..."
+
+        parts = [f"Turn {index}"]
+        if question:
+            parts.append(f"User: {question}")
+        if answer:
+            parts.append(f"Assistant: {answer}")
+
+        history_lines.append("\n".join(parts))
+
+    return "\n\n".join(history_lines)
+
+
+def build_query_rewrite_prompt(
+    question: str,
+    chat_history: list[dict[str, Any]] | None = None,
+) -> str:
     """Build a prompt for rewriting a user query."""
     prompts = load_prompts()
-    template = prompts["query_rewrite_prompt"]
+    if chat_history:
+        template = prompts.get("contextual_query_rewrite_prompt") or prompts["query_rewrite_prompt"]
+        return template.format(
+            question=question,
+            chat_history=build_chat_history_context(chat_history),
+        )
 
+    template = prompts["query_rewrite_prompt"]
     return template.format(question=question)
 
 
@@ -78,6 +112,24 @@ def build_answer_prompt(
 
     return template.format(
         question=question,
+        evidence_context=evidence_context,
+    )
+
+
+def build_answer_verification_prompt(
+    question: str,
+    answer: str,
+    evidence_chunks: list[dict[str, Any]],
+) -> str:
+    """Build the post-generation grounding verification prompt."""
+    prompts = load_prompts()
+    template = prompts["answer_verification_prompt"]
+
+    evidence_context = build_evidence_context(evidence_chunks)
+
+    return template.format(
+        question=question,
+        answer=answer,
         evidence_context=evidence_context,
     )
 
