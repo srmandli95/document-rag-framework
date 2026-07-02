@@ -5,6 +5,8 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
     APP_NAME: str = "Document RAG"
     ENV: str = "local"
+    ENABLE_DEBUG_ENDPOINTS: bool = False
+    ENABLE_RETRIEVAL_DEBUG_ENDPOINTS: bool = False
 
     STORAGE_PROVIDER: str = "local"
 
