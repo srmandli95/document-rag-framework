@@ -1,3 +1,5 @@
+import json
+import re
 from typing import Any
 
 from app.generation.citation_guard import (
@@ -7,6 +9,7 @@ from app.generation.citation_guard import (
 )
 from app.generation.llm_client import get_llm_client
 from app.generation.prompt_builder import (
+    build_answer_verification_prompt,
     build_answer_prompt,
     build_query_rewrite_prompt,
     get_refusal_message,
@@ -44,6 +47,52 @@ def _extract_llm_text(response: Any) -> str:
     return str(response)
 
 
+def _parse_verification_response(response_text: str) -> dict[str, Any]:
+    """Parse the grounding verifier JSON response."""
+    if not response_text or not response_text.strip():
+        return {
+            "status": "unsupported",
+            "reason": "Answer verifier returned an empty response.",
+            "unsupported_claims": [],
+        }
+
+    cleaned_text = response_text.strip()
+    fenced_match = re.search(
+        r"```(?:json)?\s*(\{.*?\})\s*```",
+        cleaned_text,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    if fenced_match:
+        cleaned_text = fenced_match.group(1).strip()
+
+    try:
+        parsed = json.loads(cleaned_text)
+    except json.JSONDecodeError:
+        return {
+            "status": "unsupported",
+            "reason": "Answer verifier returned invalid JSON.",
+            "unsupported_claims": [],
+        }
+
+    status = str(parsed.get("status") or "").strip().lower()
+    if status != "supported":
+        status = "unsupported"
+
+    unsupported_claims = parsed.get("unsupported_claims") or []
+    if not isinstance(unsupported_claims, list):
+        unsupported_claims = [str(unsupported_claims)]
+
+    return {
+        "status": status,
+        "reason": str(parsed.get("reason") or "Answer grounding verification completed."),
+        "unsupported_claims": [
+            str(claim)
+            for claim in unsupported_claims
+            if str(claim).strip()
+        ],
+    }
+
+
 def load_user_context_node(state: RAGState) -> RAGState:
     """Attach basic user context to the RAG graph state."""
     logger.debug("RAG node load_user_context: user_id=%s", state.get("user_id"))
@@ -57,14 +106,19 @@ def load_user_context_node(state: RAGState) -> RAGState:
 def rewrite_query_node(state: RAGState) -> RAGState:
     """Rewrite the user question before retrieval when possible."""
     original_question = state.get("question") or ""
+    chat_history = state.get("chat_history") or []
 
     try:
         logger.debug(
-            "RAG node rewrite_query started: user_id=%s question_length=%s",
+            "RAG node rewrite_query started: user_id=%s question_length=%s history_turns=%s",
             state.get("user_id"),
             len(original_question),
+            len(chat_history),
         )
-        prompt = build_query_rewrite_prompt(original_question)
+        prompt = build_query_rewrite_prompt(
+            question=original_question,
+            chat_history=chat_history,
+        )
         llm_client = get_llm_client()
         response = llm_client.generate(prompt)
         rewritten_question = _extract_llm_text(response).strip()
@@ -218,6 +272,63 @@ def generate_answer_node(state: RAGState) -> RAGState:
     return state
 
 
+def verify_answer_grounding_node(state: RAGState) -> RAGState:
+    """Verify that the generated answer is supported by retrieved evidence."""
+    if state.get("status") == "refused":
+        state["grounding_status"] = state.get("grounding_status") or "unsupported"
+        state["grounding_reason"] = state.get("grounding_reason") or "Answer was already refused."
+        state["unsupported_claims"] = state.get("unsupported_claims", [])
+
+        return state
+
+    generated_answer = state.get("generated_answer") or ""
+    evidence_chunks = state.get("evidence_chunks", [])
+
+    try:
+        prompt = build_answer_verification_prompt(
+            question=state["question"],
+            answer=generated_answer,
+            evidence_chunks=evidence_chunks,
+        )
+
+        llm_client = get_llm_client()
+        verifier_response = _extract_llm_text(llm_client.generate(prompt))
+        verification_result = _parse_verification_response(verifier_response)
+    except Exception as exc:
+        verification_result = {
+            "status": "unsupported",
+            "reason": f"Answer grounding verification failed: {exc}",
+            "unsupported_claims": [],
+        }
+
+    state["grounding_status"] = verification_result["status"]
+    state["grounding_reason"] = verification_result["reason"]
+    state["unsupported_claims"] = verification_result["unsupported_claims"]
+    logger.info(
+        "RAG node verify_answer_grounding completed: user_id=%s grounding=%s reason=%s",
+        state.get("user_id"),
+        state["grounding_status"],
+        state["grounding_reason"],
+    )
+
+    if verification_result["status"] != "supported":
+        refusal_message = get_refusal_message()
+        logger.warning(
+            "RAG answer refused after grounding verification: user_id=%s reason=%s",
+            state.get("user_id"),
+            state["grounding_reason"],
+        )
+
+        state["generated_answer"] = refusal_message
+        state["final_answer"] = refusal_message
+        state["citations"] = []
+        state["validation_status"] = "unsupported"
+        state["validation_reason"] = state["grounding_reason"]
+        state["status"] = "refused"
+
+    return state
+
+
 def validate_citations_node(state: RAGState) -> RAGState:
     """Validate generated citations against retrieved evidence."""
     if state.get("status") == "refused":
@@ -274,6 +385,9 @@ def final_response_node(state: RAGState) -> RAGState:
 
         "validation_status": state.get("validation_status"),
         "validation_reason": state.get("validation_reason"),
+        "grounding_status": state.get("grounding_status"),
+        "grounding_reason": state.get("grounding_reason"),
+        "unsupported_claims": state.get("unsupported_claims", []),
         "evidence_sufficient": state.get("evidence_sufficient"),
         "evidence_sufficiency_reason": state.get("evidence_sufficiency_reason"),
         "model_name": state.get("model_name"),

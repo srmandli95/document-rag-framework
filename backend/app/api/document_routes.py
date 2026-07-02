@@ -19,14 +19,27 @@ from app.config.settings import settings
 from app.db.database import SessionLocal, get_db
 from app.ingestion.chunking_service import chunk_and_store_document_text
 from app.ingestion.document_processing_service import process_document
+from app.ingestion.embedding_indexing_service import embed_document_chunks
+from app.ingestion.extraction_service import extract_and_store_document_text
 from app.models.user import User
 from app.schemas.document_schema import (
+    DocumentChunkDetailResponse,
     DocumentChunkingResponse,
+    DocumentChunkListResponse,
     DocumentDeleteResponse,
+    DocumentDetailResponse,
+    DocumentEmbeddingResponse,
+    DocumentExtractionResponse,
     DocumentListResponse,
     DocumentMetadata,
+    DocumentProcessingJobListResponse,
+    DocumentProcessingJobResponse,
     DocumentProcessingResponse,
     DocumentUploadResponse,
+)
+from app.services.document_chunk_service import (
+    get_chunk_by_id,
+    get_chunks_by_document_for_user,
 )
 from app.services.document_service import (
     create_document_record,
@@ -37,6 +50,7 @@ from app.services.document_service import (
 from app.services.document_processing_job_service import (
     create_processing_job,
     get_processing_job_by_id,
+    get_processing_jobs_by_document,
     get_latest_processing_job_for_document,
 )
 from app.services.local_storage_service import LocalStorageService
@@ -233,6 +247,62 @@ def _to_document_metadata(document, job=None) -> DocumentMetadata:
     )
 
 
+def _get_owned_document_or_404(db: Session, document_id: str, user_id: str):
+    """Return an owned document or raise a 404."""
+    document = get_document_by_id(
+        db=db,
+        document_id=document_id,
+        user_id=user_id,
+    )
+
+    if document is None or getattr(document, "status", None) == "deleted":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    return document
+
+
+def _to_chunk_detail_response(chunk) -> DocumentChunkDetailResponse:
+    """Convert a chunk model into the public chunk detail response."""
+    return DocumentChunkDetailResponse(
+        chunk_id=str(chunk.id),
+        document_id=str(chunk.document_id),
+        user_id=chunk.user_id,
+        chunk_text=chunk.chunk_text,
+        chunk_index=chunk.chunk_index,
+        token_count=chunk.token_count,
+        page_number=chunk.page_number,
+        section_title=chunk.section_title,
+        summary=getattr(chunk, "summary", None),
+        keywords=getattr(chunk, "keywords", None) or [],
+        hypothetical_questions=getattr(chunk, "hypothetical_questions", None) or [],
+        structure_types=getattr(chunk, "structure_types", None) or [],
+        status=chunk.status,
+        created_at=getattr(chunk, "created_at", None),
+        updated_at=getattr(chunk, "updated_at", None),
+    )
+
+
+def _to_processing_job_response(job) -> DocumentProcessingJobResponse:
+    """Convert a processing job model into its API response shape."""
+    return DocumentProcessingJobResponse(
+        job_id=str(job.id),
+        document_id=str(job.document_id),
+        user_id=job.user_id,
+        status=job.status,
+        force=bool(job.force),
+        current_step=job.current_step,
+        steps=job.steps or [],
+        error_message=job.error_message,
+        started_at=job.started_at,
+        completed_at=job.completed_at,
+        created_at=job.created_at,
+        updated_at=job.updated_at,
+    )
+
+
 @router.post("/upload", response_model=DocumentUploadResponse)
 async def upload_document(
     background_tasks: BackgroundTasks,
@@ -409,6 +479,194 @@ def list_documents(
         documents=document_metadata,
         count=len(document_metadata),
     )
+
+
+@router.get("/chunks/{chunk_id}", response_model=DocumentChunkDetailResponse)
+def get_document_chunk_detail(
+    chunk_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DocumentChunkDetailResponse:
+    """Return one owned document chunk without exposing its embedding vector."""
+    user_id = str(current_user.id)
+    chunk = get_chunk_by_id(
+        db=db,
+        chunk_id=chunk_id,
+        user_id=user_id,
+    )
+
+    if chunk is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chunk not found",
+        )
+
+    return _to_chunk_detail_response(chunk)
+
+
+@router.get("/{document_id}/chunks", response_model=DocumentChunkListResponse)
+def list_document_chunks(
+    document_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DocumentChunkListResponse:
+    """Return chunks for one owned document in chunk order."""
+    user_id = str(current_user.id)
+    _get_owned_document_or_404(
+        db=db,
+        document_id=document_id,
+        user_id=user_id,
+    )
+
+    chunks = get_chunks_by_document_for_user(
+        db=db,
+        document_id=document_id,
+        user_id=user_id,
+    )
+
+    return DocumentChunkListResponse(
+        document_id=document_id,
+        user_id=user_id,
+        chunks=[
+            _to_chunk_detail_response(chunk)
+            for chunk in chunks
+        ],
+    )
+
+
+@router.get("/processing-jobs/{job_id}", response_model=DocumentProcessingJobResponse)
+def get_processing_job_detail(
+    job_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DocumentProcessingJobResponse:
+    """Return one processing job owned by the authenticated user."""
+    user_id = str(current_user.id)
+    job = get_processing_job_by_id(
+        db=db,
+        job_id=job_id,
+        user_id=user_id,
+    )
+
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Processing job not found",
+        )
+
+    return _to_processing_job_response(job)
+
+
+@router.get("/{document_id}/processing-jobs", response_model=DocumentProcessingJobListResponse)
+def list_document_processing_jobs(
+    document_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DocumentProcessingJobListResponse:
+    """Return processing jobs for one owned document."""
+    user_id = str(current_user.id)
+    _get_owned_document_or_404(
+        db=db,
+        document_id=document_id,
+        user_id=user_id,
+    )
+
+    jobs = get_processing_jobs_by_document(
+        db=db,
+        document_id=document_id,
+        user_id=user_id,
+    )
+
+    return DocumentProcessingJobListResponse(
+        document_id=document_id,
+        user_id=user_id,
+        jobs=[
+            _to_processing_job_response(job)
+            for job in jobs
+        ],
+    )
+
+
+@router.get("/{document_id}", response_model=DocumentDetailResponse)
+def get_document_detail(
+    document_id: str,
+    user_id: str | None = Query(default=None),  # Legacy compatibility field; the JWT identity is authoritative.
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DocumentDetailResponse:
+    """Return one document owned by the authenticated user."""
+    authenticated_user_id = str(current_user.id)
+    document = _get_owned_document_or_404(
+        db=db,
+        document_id=document_id,
+        user_id=authenticated_user_id,
+    )
+    latest_job = (
+        get_latest_processing_job_for_document(
+            db, str(document.id), authenticated_user_id
+        )
+        if document.status in {"processing", "failed"}
+        else None
+    )
+    metadata = _to_document_metadata(document, latest_job)
+
+    return DocumentDetailResponse(**metadata.model_dump())
+
+
+@router.post("/{document_id}/extract", response_model=DocumentExtractionResponse)
+def extract_document(
+    document_id: str,
+    user_id: str | None = Query(default=None),  # Legacy compatibility field; the JWT identity is authoritative.
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DocumentExtractionResponse:
+    """Extract text for an uploaded document owned by the authenticated user."""
+    authenticated_user_id = str(current_user.id)
+    document = get_document_by_id(
+        db=db,
+        document_id=document_id,
+        user_id=authenticated_user_id,
+    )
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    result = extract_and_store_document_text(db=db, document=document)
+    return DocumentExtractionResponse(**result)
+
+
+@router.post("/{document_id}/embed", response_model=DocumentEmbeddingResponse)
+def embed_document(
+    document_id: str,
+    user_id: str | None = Query(default=None),  # Legacy compatibility field; the JWT identity is authoritative.
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DocumentEmbeddingResponse:
+    """Embed chunks for a chunked document owned by the authenticated user."""
+    authenticated_user_id = str(current_user.id)
+    document = get_document_by_id(
+        db=db,
+        document_id=document_id,
+        user_id=authenticated_user_id,
+    )
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    if document.status != "chunked":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Document must be in chunked status before embedding",
+        )
+
+    result = embed_document_chunks(db=db, document=document)
+    return DocumentEmbeddingResponse(**result)
 
 
 @router.post("/{document_id}/chunk", response_model=DocumentChunkingResponse)

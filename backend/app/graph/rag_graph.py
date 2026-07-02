@@ -10,6 +10,7 @@ from app.graph.nodes import (
     retrieve_and_rerank_node,
     rewrite_query_node,
     validate_citations_node,
+    verify_answer_grounding_node,
 )
 from app.graph.state import RAGState
 from app.retrieval.retrieval_settings import (
@@ -31,6 +32,7 @@ def build_rag_graph():
     graph_builder.add_node("retrieve_and_rerank", retrieve_and_rerank_node)
     graph_builder.add_node("check_evidence_sufficiency", check_evidence_sufficiency_node)
     graph_builder.add_node("generate_answer", generate_answer_node)
+    graph_builder.add_node("verify_answer_grounding", verify_answer_grounding_node)
     graph_builder.add_node("validate_citations", validate_citations_node)
     graph_builder.add_node("final_response", final_response_node)
 
@@ -39,7 +41,8 @@ def build_rag_graph():
     graph_builder.add_edge("rewrite_query", "retrieve_and_rerank")
     graph_builder.add_edge("retrieve_and_rerank", "check_evidence_sufficiency")
     graph_builder.add_edge("check_evidence_sufficiency", "generate_answer")
-    graph_builder.add_edge("generate_answer", "validate_citations")
+    graph_builder.add_edge("generate_answer", "verify_answer_grounding")
+    graph_builder.add_edge("verify_answer_grounding", "validate_citations")
     graph_builder.add_edge("validate_citations", "final_response")
     graph_builder.add_edge("final_response", END)
 
@@ -50,6 +53,7 @@ def run_rag_workflow(
     db: Any,
     user_id: str,
     question: str,
+    chat_history: list[dict[str, Any]] | None = None,
     top_k: int = 5,
     hybrid_top_k: int = 20,
     vector_top_k: int = 20,
@@ -87,6 +91,7 @@ def run_rag_workflow(
         "user_id": user_id,
         "question": question,
         "rewritten_question": None,
+        "chat_history": chat_history or [],
         "top_k": retrieval_settings.top_k,
         "hybrid_top_k": retrieval_settings.hybrid_top_k,
         "vector_top_k": retrieval_settings.vector_top_k,
@@ -103,6 +108,9 @@ def run_rag_workflow(
         "citations": [],
         "validation_status": None,
         "validation_reason": None,
+        "grounding_status": None,
+        "grounding_reason": None,
+        "unsupported_claims": [],
         "final_answer": None,
         "final_response": None,
         "model_name": None,

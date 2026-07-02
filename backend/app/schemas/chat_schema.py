@@ -35,6 +35,9 @@ class AskResponse(BaseModel):
 
     validation_status: str | None = None
     validation_reason: str | None = None
+    grounding_status: str | None = None
+    grounding_reason: str | None = None
+    unsupported_claims: list[str] = Field(default_factory=list)
 
     evidence_sufficient: bool | None = None
     evidence_sufficiency_reason: str | None = None
