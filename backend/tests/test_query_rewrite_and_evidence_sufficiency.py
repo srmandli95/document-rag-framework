@@ -6,6 +6,7 @@ from app.graph.nodes import (
     generate_answer_node,
     retrieve_and_rerank_node,
     rewrite_query_node,
+    verify_answer_grounding_node,
 )
 from app.graph.rag_graph import run_rag_workflow
 
@@ -15,9 +16,11 @@ class FakeLLM:
         self.response = response
         self.should_raise = should_raise
         self.called = False
+        self.prompt = None
 
     def generate(self, prompt: str):
         self.called = True
+        self.prompt = prompt
 
         if self.should_raise:
             raise RuntimeError("LLM failed")
@@ -41,6 +44,33 @@ def test_rewrite_query_node_stores_rewritten_question(monkeypatch):
 
     assert result["rewritten_question"] == "late payment consequences DTE Energy bill"
     assert fake_llm.called is True
+
+
+def test_rewrite_query_node_uses_chat_history_for_follow_up(monkeypatch):
+    fake_llm = FakeLLM("vision deductible for my health insurance plan")
+
+    monkeypatch.setattr(
+        "app.graph.nodes.get_llm_client",
+        lambda: fake_llm,
+    )
+
+    state = {
+        "question": "What about vision?",
+        "chat_history": [
+            {
+                "question": "What is my dental deductible?",
+                "answer": "The dental deductible is $50 according to the evidence.",
+            }
+        ],
+    }
+
+    result = rewrite_query_node(state)
+
+    assert result["rewritten_question"] == "vision deductible for my health insurance plan"
+    assert "Prior chat context:" in fake_llm.prompt
+    assert "What is my dental deductible?" in fake_llm.prompt
+    assert "Current question:" in fake_llm.prompt
+    assert "What about vision?" in fake_llm.prompt
 
 
 def test_rewrite_query_node_falls_back_when_llm_returns_empty(monkeypatch):
@@ -267,11 +297,80 @@ def test_generate_answer_node_skips_llm_when_status_refused(monkeypatch):
     assert fake_llm.called is False
 
 
+def test_verify_answer_grounding_node_keeps_supported_answer(monkeypatch):
+    fake_llm = FakeLLM(
+        '{"status": "supported", "reason": "The answer matches the evidence.", "unsupported_claims": []}'
+    )
+
+    monkeypatch.setattr(
+        "app.graph.nodes.get_llm_client",
+        lambda: fake_llm,
+    )
+
+    state = {
+        "user_id": "local-user-123",
+        "question": "What is my deductible?",
+        "generated_answer": "Your deductible is $50.",
+        "evidence_chunks": [
+            {
+                "chunk_id": "chunk-1",
+                "chunk_text": "The deductible is $50.",
+            }
+        ],
+        "status": "answered",
+    }
+
+    result = verify_answer_grounding_node(state)
+
+    assert result["grounding_status"] == "supported"
+    assert result["status"] == "answered"
+    assert result["generated_answer"] == "Your deductible is $50."
+
+
+def test_verify_answer_grounding_node_refuses_unsupported_answer(monkeypatch):
+    fake_llm = FakeLLM(
+        '{"status": "unsupported", "reason": "The evidence says $50, not $500.", '
+        '"unsupported_claims": ["Your deductible is $500."]}'
+    )
+
+    monkeypatch.setattr(
+        "app.graph.nodes.get_llm_client",
+        lambda: fake_llm,
+    )
+
+    state = {
+        "user_id": "local-user-123",
+        "question": "What is my deductible?",
+        "generated_answer": "Your deductible is $500.",
+        "final_answer": "Your deductible is $500.",
+        "citations": [{"chunk_id": "chunk-1"}],
+        "evidence_chunks": [
+            {
+                "chunk_id": "chunk-1",
+                "chunk_text": "The deductible is $50.",
+            }
+        ],
+        "status": "answered",
+    }
+
+    result = verify_answer_grounding_node(state)
+
+    assert result["grounding_status"] == "unsupported"
+    assert result["validation_status"] == "unsupported"
+    assert result["status"] == "refused"
+    assert result["citations"] == []
+    assert "could not find enough evidence" in result["final_answer"].lower()
+    assert result["unsupported_claims"] == ["Your deductible is $500."]
+
+
 def test_run_rag_workflow_includes_rewrite_and_evidence_fields(monkeypatch):
     rewrite_llm = FakeLLM("urgent care health insurance coverage")
     answer_llm = FakeLLM("Yes, urgent care is covered according to the evidence.")
+    verifier_llm = FakeLLM(
+        '{"status": "supported", "reason": "The answer is supported by the evidence.", "unsupported_claims": []}'
+    )
 
-    llm_calls = [rewrite_llm, answer_llm]
+    llm_calls = [rewrite_llm, answer_llm, verifier_llm]
 
     def fake_get_llm_client():
         return llm_calls.pop(0)
@@ -325,6 +424,7 @@ def test_run_rag_workflow_includes_rewrite_and_evidence_fields(monkeypatch):
     assert result["rewritten_question"] == "urgent care health insurance coverage"
     assert result["evidence_sufficient"] is True
     assert result["evidence_sufficiency_reason"] == "Retrieved evidence is sufficient for answer generation."
+    assert result["grounding_status"] == "supported"
     assert result["status"] == "answered"
     assert result["validation_status"] == "supported"
     assert len(result["citations"]) == 1
