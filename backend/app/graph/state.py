@@ -8,6 +8,7 @@ class RAGState(TypedDict, total=False):
     user_id: str
     question: str
     rewritten_question: str | None
+    chat_history: list[dict[str, Any]]
 
     top_k: int
     hybrid_top_k: int
@@ -29,6 +30,9 @@ class RAGState(TypedDict, total=False):
 
     validation_status: str | None
     validation_reason: str | None
+    grounding_status: str | None
+    grounding_reason: str | None
+    unsupported_claims: list[str]
 
     final_answer: str | None
     final_response: dict[str, Any] | None
