@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from app.auth.dependencies import get_current_user
+from app.config.settings import settings
 from app.db.database import SessionLocal, get_async_db
 from app.graph.rag_graph import run_rag_workflow
 from app.models.user import User
@@ -27,6 +28,7 @@ from app.utils.logger import get_logger
 
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
+debug_router = APIRouter(tags=["Chat Debug"])
 logger = get_logger(__name__)
 CHAT_HISTORY_TURN_LIMIT = 6
 
@@ -242,7 +244,7 @@ async def ask_question(
     )
 
 
-@router.get("/messages/{message_id}/evidence", response_model=ChatMessageEvidenceResponse)
+@debug_router.get("/messages/{message_id}/evidence", response_model=ChatMessageEvidenceResponse)
 async def get_chat_message_evidence(
     message_id: str,
     async_db: AsyncSession = Depends(get_async_db),
@@ -394,4 +396,13 @@ async def get_chat_session_detail(
             _to_chat_message_response(message)
             for message in messages
         ],
+    )
+
+
+if settings.ENABLE_DEBUG_ENDPOINTS:
+    router.add_api_route(
+        "/messages/{message_id}/evidence",
+        get_chat_message_evidence,
+        methods=["GET"],
+        response_model=ChatMessageEvidenceResponse,
     )
