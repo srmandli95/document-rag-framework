@@ -25,4 +25,4 @@ health:
 	curl http://localhost:8000/health
 
 test:
-	docker compose exec backend sh -c "PYTHONPATH=/app pytest -q"
+	docker compose exec backend sh -c "ENABLE_DEBUG_ENDPOINTS=true ENABLE_RETRIEVAL_DEBUG_ENDPOINTS=true PYTHONPATH=/app pytest -q"

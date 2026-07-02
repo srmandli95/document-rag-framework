@@ -49,7 +49,9 @@ app.include_router(health_router)
 app.include_router(document_router)
 app.include_router(chat_router)
 app.include_router(auth_router)
-app.include_router(retrieval_router)
+
+if settings.ENABLE_DEBUG_ENDPOINTS and settings.ENABLE_RETRIEVAL_DEBUG_ENDPOINTS:
+    app.include_router(retrieval_router)
 
 
 @app.get("/")
