@@ -58,6 +58,7 @@ from app.utils.logger import get_logger
 
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
+debug_router = APIRouter(tags=["Document Debug"])
 logger = get_logger(__name__)
 
 
@@ -481,7 +482,7 @@ def list_documents(
     )
 
 
-@router.get("/chunks/{chunk_id}", response_model=DocumentChunkDetailResponse)
+@debug_router.get("/chunks/{chunk_id}", response_model=DocumentChunkDetailResponse)
 def get_document_chunk_detail(
     chunk_id: str,
     db: Session = Depends(get_db),
@@ -504,7 +505,7 @@ def get_document_chunk_detail(
     return _to_chunk_detail_response(chunk)
 
 
-@router.get("/{document_id}/chunks", response_model=DocumentChunkListResponse)
+@debug_router.get("/{document_id}/chunks", response_model=DocumentChunkListResponse)
 def list_document_chunks(
     document_id: str,
     db: Session = Depends(get_db),
@@ -534,7 +535,7 @@ def list_document_chunks(
     )
 
 
-@router.get("/processing-jobs/{job_id}", response_model=DocumentProcessingJobResponse)
+@debug_router.get("/processing-jobs/{job_id}", response_model=DocumentProcessingJobResponse)
 def get_processing_job_detail(
     job_id: str,
     db: Session = Depends(get_db),
@@ -557,7 +558,7 @@ def get_processing_job_detail(
     return _to_processing_job_response(job)
 
 
-@router.get("/{document_id}/processing-jobs", response_model=DocumentProcessingJobListResponse)
+@debug_router.get("/{document_id}/processing-jobs", response_model=DocumentProcessingJobListResponse)
 def list_document_processing_jobs(
     document_id: str,
     db: Session = Depends(get_db),
@@ -587,7 +588,7 @@ def list_document_processing_jobs(
     )
 
 
-@router.get("/{document_id}", response_model=DocumentDetailResponse)
+@debug_router.get("/{document_id}", response_model=DocumentDetailResponse)
 def get_document_detail(
     document_id: str,
     user_id: str | None = Query(default=None),  # Legacy compatibility field; the JWT identity is authoritative.
@@ -613,7 +614,7 @@ def get_document_detail(
     return DocumentDetailResponse(**metadata.model_dump())
 
 
-@router.post("/{document_id}/extract", response_model=DocumentExtractionResponse)
+@debug_router.post("/{document_id}/extract", response_model=DocumentExtractionResponse)
 def extract_document(
     document_id: str,
     user_id: str | None = Query(default=None),  # Legacy compatibility field; the JWT identity is authoritative.
@@ -638,7 +639,7 @@ def extract_document(
     return DocumentExtractionResponse(**result)
 
 
-@router.post("/{document_id}/embed", response_model=DocumentEmbeddingResponse)
+@debug_router.post("/{document_id}/embed", response_model=DocumentEmbeddingResponse)
 def embed_document(
     document_id: str,
     user_id: str | None = Query(default=None),  # Legacy compatibility field; the JWT identity is authoritative.
@@ -669,7 +670,7 @@ def embed_document(
     return DocumentEmbeddingResponse(**result)
 
 
-@router.post("/{document_id}/chunk", response_model=DocumentChunkingResponse)
+@debug_router.post("/{document_id}/chunk", response_model=DocumentChunkingResponse)
 def chunk_document(
     document_id: str,
     user_id: str | None = Query(default=None),  # Legacy compatibility field; the JWT identity is authoritative.
@@ -700,7 +701,7 @@ def chunk_document(
     return DocumentChunkingResponse(**result)
 
 
-@router.post("/{document_id}/process", response_model=DocumentProcessingResponse)
+@debug_router.post("/{document_id}/process", response_model=DocumentProcessingResponse)
 def process_document_endpoint(
     document_id: str,
     user_id: str | None = Query(default=None),  # Legacy compatibility field; the JWT identity is authoritative.
@@ -763,4 +764,61 @@ def delete_document(
         user_id=document.user_id,
         status=document.status,
         message="Document deleted successfully",
+    )
+
+
+if settings.ENABLE_DEBUG_ENDPOINTS:
+    router.add_api_route(
+        "/chunks/{chunk_id}",
+        get_document_chunk_detail,
+        methods=["GET"],
+        response_model=DocumentChunkDetailResponse,
+    )
+    router.add_api_route(
+        "/{document_id}/chunks",
+        list_document_chunks,
+        methods=["GET"],
+        response_model=DocumentChunkListResponse,
+    )
+    router.add_api_route(
+        "/processing-jobs/{job_id}",
+        get_processing_job_detail,
+        methods=["GET"],
+        response_model=DocumentProcessingJobResponse,
+    )
+    router.add_api_route(
+        "/{document_id}/processing-jobs",
+        list_document_processing_jobs,
+        methods=["GET"],
+        response_model=DocumentProcessingJobListResponse,
+    )
+    router.add_api_route(
+        "/{document_id}",
+        get_document_detail,
+        methods=["GET"],
+        response_model=DocumentDetailResponse,
+    )
+    router.add_api_route(
+        "/{document_id}/extract",
+        extract_document,
+        methods=["POST"],
+        response_model=DocumentExtractionResponse,
+    )
+    router.add_api_route(
+        "/{document_id}/embed",
+        embed_document,
+        methods=["POST"],
+        response_model=DocumentEmbeddingResponse,
+    )
+    router.add_api_route(
+        "/{document_id}/chunk",
+        chunk_document,
+        methods=["POST"],
+        response_model=DocumentChunkingResponse,
+    )
+    router.add_api_route(
+        "/{document_id}/process",
+        process_document_endpoint,
+        methods=["POST"],
+        response_model=DocumentProcessingResponse,
     )
